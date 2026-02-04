@@ -84,43 +84,61 @@ def run_classification(model, transform, images, labels, device='cpu', top_k=5):
 
 def display_results(results, save_path=None):
     """
-    Display classification results with images in 4x3 grid.
+    Display classification results with images in two 2x3 grids (12 total).
     """
     n = len(results)
     
-    # Calculate grid dimensions (4 columns, up to 3 rows)
-    ncols = 4
-    nrows = (n + ncols - 1) // ncols  # Ceiling division
+    # Create figure with 2 rows of grids
+    fig = plt.figure(figsize=(12, 10))
     
-    # Smaller figure size: 3 inches per column, 3.5 inches per row
-    fig, axes = plt.subplots(nrows, ncols, figsize=(3*ncols, 3.5*nrows))
-    
-    # Flatten axes array for easier iteration
-    if nrows == 1:
-        axes = axes.reshape(1, -1)
-    axes_flat = axes.flatten()
-    
-    for idx, (ax, result) in enumerate(zip(axes_flat[:n], results)):
-        ax.imshow(result['image'])
-        ax.axis('off')
+    # Grid 1: Top 6 images (2 rows × 3 columns)
+    for idx in range(6):
+        ax = plt.subplot(4, 3, idx + 1)  # Positions 1-6 in top half
         
-        # Build title with predictions
-        title = f"{result['description']}\n\n"
-        for i, pred in enumerate(result['predictions'][:3]):  # Top 3
-            title += f"{i+1}. {pred['class']}: {pred['probability']:.1f}%\n"
-        ax.set_title(title, fontsize=8)
+        if idx < n:
+            result = results[idx]
+            ax.imshow(result['image'])
+            ax.axis('off')
+            
+            # Build title
+            title = f"Ground Truth: {result['description']}\n"
+            title += "-" * 25 + "\n"
+            title += "Predictions:\n"
+            for i, pred in enumerate(result['predictions'][:2]):
+                title += f"{i+1}. {pred['class']}: {pred['probability']:.1f}%\n"
+            ax.set_title(title, fontsize=8, ha='center')
+        else:
+            ax.axis('off')
     
-    # Hide unused subplots
-    for idx in range(n, len(axes_flat)):
-        axes_flat[idx].axis('off')
+    # Grid 2: Bottom 6 images (2 rows × 3 columns)
+    for idx in range(6, 12):
+        ax = plt.subplot(4, 3, idx + 1)  # Positions 7-12 in bottom half
+        
+        if idx < n:
+            result = results[idx]
+            ax.imshow(result['image'])
+            ax.axis('off')
+            
+            # Build title
+            title = f"Ground Truth: {result['description']}\n"
+            title += "-" * 25 + "\n"
+            title += "Predictions:\n"
+            for i, pred in enumerate(result['predictions'][:2]):
+                title += f"{i+1}. {pred['class']}: {pred['probability']:.1f}%\n"
+            ax.set_title(title, fontsize=8, ha='center')
+        else:
+            ax.axis('off')
     
-    plt.tight_layout()
+    plt.tight_layout(pad=1.5)
     
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"Results saved to: {save_path}")
     
     plt.show()
+
+
+
 
 
 
