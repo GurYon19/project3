@@ -5,6 +5,7 @@ import torch
 import argparse
 from pathlib import Path
 import sys
+import random
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -44,21 +45,36 @@ def train_part2(args):
     val_transform = get_transforms(is_training=False, image_size=IMAGE_SIZE)
     
     train_dataset = SingleObjectDataset(
-        images_dir=Path(args.data_dir) / 'train' / 'images',
-        annotations_file=Path(args.data_dir) / 'train' / 'annotations.json',
+        images_dir=Path(args.data_dir) / 'train',
+        annotations_file=Path(args.data_dir) / 'train' / '_annotations.coco.json',
         transform=train_transform,
         annotation_format=args.format
     )
     
     val_dataset = SingleObjectDataset(
-        images_dir=Path(args.data_dir) / 'valid' / 'images',
-        annotations_file=Path(args.data_dir) / 'valid' / 'annotations.json',
+        images_dir=Path(args.data_dir) / 'valid',
+        annotations_file=Path(args.data_dir) / 'valid' / '_annotations.coco.json',
         transform=val_transform,
         annotation_format=args.format
     )
     
-    print(f"  Train samples: {len(train_dataset)}")
-    print(f"  Valid samples: {len(val_dataset)}")
+    print(f"  Train samples (full): {len(train_dataset)}")
+    print(f"  Valid samples (full): {len(val_dataset)}")
+    
+    # Apply subset if specified
+    if args.subset and args.subset < 1.0:
+        from torch.utils.data import Subset
+        train_size = int(len(train_dataset) * args.subset)
+        val_size = int
+        (len(val_dataset) * args.subset)
+        
+        train_indices = random.sample(range(len(train_dataset)), train_size)
+        val_indices = random.sample(range(len(val_dataset)), val_size)
+        
+        train_dataset = Subset(train_dataset, train_indices)
+        val_dataset = Subset(val_dataset, val_indices)
+        
+        print(f"  Using {args.subset*100:.0f}% subset: Train={len(train_dataset)}, Valid={len(val_dataset)}")
     
     train_loader = get_dataloader(train_dataset, batch_size=config['batch_size'], shuffle=True)
     val_loader = get_dataloader(val_dataset, batch_size=config['batch_size'], shuffle=False)
@@ -140,6 +156,8 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=None, help="Learning rate")
     parser.add_argument('--format', type=str, default='coco', choices=['coco', 'yolo'], 
                        help="Annotation format")
+    parser.add_argument('--subset', type=float, default=None, 
+                       help="Fraction of dataset to use (e.g., 0.4 for 40%)")
     parser.add_argument('--demo', action='store_true', help="Run demo with synthetic data")
     
     args = parser.parse_args()

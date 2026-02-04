@@ -23,9 +23,9 @@ IMAGE_SIZE = 224
 # Part 2 Config
 PART2_CONFIG = {
     "num_classes": 1,
-    "batch_size": 32,
-    "epochs": 50,
-    "learning_rate": 1e-3,
+    "batch_size": 16,
+    "epochs": 30,
+    "learning_rate": 4e-3,
     "weight_decay": 1e-4,
     "freeze_backbone": True,
     "unfreeze_epoch": 20,

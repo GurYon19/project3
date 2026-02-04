@@ -69,6 +69,12 @@ class Trainer:
         
         avg_loss = total_loss / num_batches
         self.writer.add_scalar('Loss/train_epoch', avg_loss, self.current_epoch)
+        
+        # Log learning rates
+        for i, param_group in enumerate(self.optimizer.param_groups):
+            name = param_group.get('name', f'group_{i}')
+            self.writer.add_scalar(f'LearningRate/{name}', param_group['lr'], self.current_epoch)
+        
         return {'loss': avg_loss}
     
     @torch.no_grad()
@@ -91,13 +97,33 @@ class Trainer:
             
             total_loss += loss_dict['loss'].item()
             total_iou += loss_dict.get('mean_iou', torch.tensor(0)).item()
+            
+            # Track loss components
+            if 'coord_loss' in loss_dict:
+                if not hasattr(self, '_val_coord_loss'):
+                    self._val_coord_loss = 0
+                    self._val_iou_loss = 0
+                self._val_coord_loss += loss_dict['coord_loss'].item()
+                self._val_iou_loss += loss_dict['iou_loss'].item()
+            
             num_batches += 1
         
         avg_loss = total_loss / num_batches
         mean_iou = total_iou / num_batches
         
+        # Log main metrics
         self.writer.add_scalar('Loss/val', avg_loss, self.current_epoch)
         self.writer.add_scalar('Metrics/mean_iou', mean_iou, self.current_epoch)
+        
+        # Log loss components if available
+        if hasattr(self, '_val_coord_loss'):
+            self.writer.add_scalar('Loss/val_coord', self._val_coord_loss / num_batches, self.current_epoch)
+            self.writer.add_scalar('Loss/val_iou', self._val_iou_loss / num_batches, self.current_epoch)
+            self._val_coord_loss = 0
+            self._val_iou_loss = 0
+        
+        # Log detection rate at IoU thresholds
+        self.writer.add_scalar('Metrics/detection_rate_50', 1.0 if mean_iou > 0.5 else 0.0, self.current_epoch)
         
         return {'loss': avg_loss, 'mean_iou': mean_iou}
     
@@ -112,8 +138,12 @@ class Trainer:
             self.current_epoch = epoch
             
             if unfreeze_epoch and epoch == unfreeze_epoch:
-                print(f"\n>>> Unfreezing backbone at epoch {epoch}")
-                self.model.unfreeze_backbone()
+                print(f"\n>>> Unfreezing backbone at epoch {epoch} with reduced LR")
+                self.model.unfreeze_backbone(num_layers=3)  # Gradual: only last 3 layers
+                # Reduce learning rate for fine-tuning
+                for param_group in self.optimizer.param_groups:
+                    param_group['lr'] = param_group['lr'] * 0.1
+                print(f"    LR reduced to {self.optimizer.param_groups[0]['lr']:.6f}")
             
             train_metrics = self.train_epoch(train_loader)
             val_metrics = self.validate(val_loader)
@@ -177,8 +207,17 @@ def create_trainer(model: nn.Module, phase: int, config: Dict, class_names: list
                                        lambda_cls=config.get('lambda_cls', 1.0),
                                        lambda_obj=config.get('lambda_obj', 1.0))
     
-    optimizer = optim.Adam(model.parameters(), lr=config.get('learning_rate', 1e-3),
-                          weight_decay=config.get('weight_decay', 1e-4))
+    # Separate learning rates: backbone gets 100x lower LR
+    head_lr = config.get('learning_rate', 1e-3)
+    backbone_lr = head_lr * 0.01  # 100x lower for pretrained backbone
+    
+    param_groups = [
+        {'params': model.backbone.parameters(), 'lr': backbone_lr, 'name': 'backbone'},
+        {'params': model.head.parameters(), 'lr': head_lr, 'name': 'head'}
+    ]
+    
+    optimizer = optim.Adam(param_groups, weight_decay=config.get('weight_decay', 1e-4))
+    print(f"  Optimizer LR: backbone={backbone_lr:.6f}, head={head_lr:.6f}")
     
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.5)
     
