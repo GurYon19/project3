@@ -1,0 +1,56 @@
+
+1
+
+Automatic Zoom
+Project 3 Guidelines: Implementation of Neural Networks for Object
+Detection
+This project is designed to extend neural network knowledge from image classification to object
+detection, emphasizing transfer learning, architectural reasoning, and independent research. Students
+are expected to go beyond course material, investigate unfamiliar concepts, and justify all design
+decisions.
+Part 1: Report on Classification Model Backbone (10 Points)
+Backbone Architecture Selection
+Aggregate the IDs of all group members and use the final digit of the digit-sum to select the backbone
+architecture:
+• 0–3: ResNet18
+• 4–6: VGG16
+• 7–9: MobileNet V3
+Important: An incorrect digit-sum calculation will result in a 10-point deduction.
+Example: id1 = 12345678, id2 = 87654321 Digit sum = 72 → 7 + 2 = 9 → MobileNet V3
+Requirements
+1. ID Calculation Documentation Clearly document the full digit summation process and the
+resulting backbone choice.
+2. Inference Demonstration Run inference using the pretrained backbone on several random
+images and present the classification results.
+3. Architecture Analysis Report Write a detailed report (minimum two pages) analyzing:
+• The overall architecture of the selected model
+• Key building blocks not covered in course lectures
+• Design motivations behind these components
+• Observed strengths and limitations from inference results
+Use original research papers and additional resources.
+1
+Part 2: Single Class, Single Object Per Frame (40 Points)
+Objective
+Develop a basic object detection model for a dataset containing a single object class, where each
+image contains exactly one object. This part introduces the transition from classification to detection
+through transfer learning.
+Background: Classification Backbone as a Detector
+Pretrained classification models such as ResNet, VGG, and MobileNet are trained on large-scale datasets
+(e.g. ImageNet) and learn rich hierarchical feature representations. In this part, you will leverage such
+a model as a backbone, reusing its learned features while adapting the network to predict object
+location instead of a class label. This approach reduces training cost and improves generalization when
+data is limited.
+Requirements
+1. Model Construction Build an object detection model using:
+• The selected pretrained backbone
+• Only basic PyTorch building blocks (e.g. Conv2d, Linear, ReLU, pooling)
+You must explain how the classification model is adapted for detection.
+2. Bounding Box Representation Research and implement an axis-aligned bounding box (AABB)
+representation suitable for a single-object scenario.
+3. Loss Functions and Metrics Research and select appropriate loss function(s) and evaluation
+metric(s) for this task. Justify your choices theoretically and practically.
+4. Dataset Selection and Preparation Select a dataset suitable for single-class, single-object
+detection (e.g. from Roboflow Public Datasets). Justify the dataset choice and describe how it is
+split into training, validation, and test sets.
+5. Model Training and Analysis Train the model and provide a detailed analysis of:
+2
