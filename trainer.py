@@ -34,6 +34,10 @@ class Trainer:
         self.best_metric = 0
         self.epochs_without_improvement = 0
         self.current_epoch = 0
+        
+        # Track high-loss samples for analysis
+        self.high_loss_threshold = 0.6  # Flag losses above this
+        self.high_loss_samples = []
     
     def train_epoch(self, dataloader: DataLoader) -> Dict:
         self.model.train()
@@ -62,6 +66,14 @@ class Trainer:
             total_loss += loss.item()
             num_batches += 1
             pbar.set_postfix({'loss': f"{loss.item():.4f}"})
+            
+            # Log high-loss batches for analysis
+            if loss.item() > self.high_loss_threshold:
+                self.high_loss_samples.append({
+                    'epoch': self.current_epoch,
+                    'batch': batch_idx,
+                    'loss': loss.item()
+                })
             
             if batch_idx % 10 == 0:
                 global_step = self.current_epoch * len(dataloader) + batch_idx
@@ -173,6 +185,16 @@ class Trainer:
         
         self.save_checkpoint('final_model.pth', val_metrics)
         self.writer.close()
+        
+        # Report high-loss samples
+        if self.high_loss_samples:
+            print(f"\n⚠️ High-loss batches detected: {len(self.high_loss_samples)}")
+            # Save to file for analysis
+            import json
+            with open(self.log_dir / 'high_loss_batches.json', 'w') as f:
+                json.dump(self.high_loss_samples, f, indent=2)
+            print(f"   Saved to: {self.log_dir / 'high_loss_batches.json'}")
+        
         print(f"\nTraining complete! Best IoU: {self.best_metric:.4f}")
     
     def save_checkpoint(self, filename: str, metrics: Dict = None):
@@ -185,7 +207,19 @@ class Trainer:
         }
         if self.scheduler:
             checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
-        torch.save(checkpoint, self.checkpoint_dir / filename)
+        
+        # Try to save with error handling (file lock issues on Windows)
+        try:
+            torch.save(checkpoint, self.checkpoint_dir / filename)
+        except RuntimeError as e:
+            print(f"  ⚠️ Warning: Could not save {filename}: {e}")
+            # Try alternative filename
+            alt_filename = f"backup_{filename}"
+            try:
+                torch.save(checkpoint, self.checkpoint_dir / alt_filename)
+                print(f"  ✅ Saved as {alt_filename} instead")
+            except RuntimeError:
+                print(f"  ❌ Could not save checkpoint, continuing training...")
     
     def load_checkpoint(self, filename: str):
         checkpoint = torch.load(self.checkpoint_dir / filename, map_location=self.device)
@@ -207,18 +241,30 @@ def create_trainer(model: nn.Module, phase: int, config: Dict, class_names: list
                                        lambda_cls=config.get('lambda_cls', 1.0),
                                        lambda_obj=config.get('lambda_obj', 1.0))
     
-    # Separate learning rates: backbone gets 100x lower LR
-    head_lr = config.get('learning_rate', 1e-3)
-    backbone_lr = head_lr * 0.01  # 100x lower for pretrained backbone
+    # Check if backbone should remain frozen
+    freeze_backbone = config.get('freeze_backbone', False)
+    unfreeze_epoch = config.get('unfreeze_epoch', None)
     
-    param_groups = [
-        {'params': model.backbone.parameters(), 'lr': backbone_lr, 'name': 'backbone'},
-        {'params': model.head.parameters(), 'lr': head_lr, 'name': 'head'}
-    ]
+    head_lr = config.get('learning_rate', 1e-3)
+    
+    if freeze_backbone and unfreeze_epoch is None:
+        # Head-only training: only optimize head parameters
+        param_groups = [
+            {'params': model.head.parameters(), 'lr': head_lr, 'name': 'head'}
+        ]
+        print(f"  Training mode: HEAD ONLY (backbone frozen)")
+        print(f"  Optimizer LR: head={head_lr:.6f}")
+    else:
+        # Two-phase training: separate LRs for backbone and head
+        backbone_lr = head_lr * 0.01  # 100x lower for pretrained backbone
+        param_groups = [
+            {'params': model.backbone.parameters(), 'lr': backbone_lr, 'name': 'backbone'},
+            {'params': model.head.parameters(), 'lr': head_lr, 'name': 'head'}
+        ]
+        print(f"  Training mode: TWO-PHASE (backbone + head)")
+        print(f"  Optimizer LR: backbone={backbone_lr:.6f}, head={head_lr:.6f}")
     
     optimizer = optim.Adam(param_groups, weight_decay=config.get('weight_decay', 1e-4))
-    print(f"  Optimizer LR: backbone={backbone_lr:.6f}, head={head_lr:.6f}")
-    
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.5)
     
     return Trainer(model=model, criterion=criterion, optimizer=optimizer, scheduler=scheduler,

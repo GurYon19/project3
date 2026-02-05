@@ -20,15 +20,15 @@ BACKBONE_OUT_FEATURES = 576
 PRETRAINED = True
 IMAGE_SIZE = 224
 
-# Part 2 Config
+# Part 2 Config - Pure DIoU, Head-Only Training
 PART2_CONFIG = {
     "num_classes": 1,
     "batch_size": 16,
     "epochs": 30,
-    "learning_rate": 4e-3,
+    "learning_rate": 2e-3,  # Only for detection head
     "weight_decay": 1e-4,
-    "freeze_backbone": True,
-    "unfreeze_epoch": 20,
+    "freeze_backbone": True,  # Keep backbone frozen
+    "unfreeze_epoch": None,  # Never unfreeze (head-only training)
 }
 
 # Part 3 Config

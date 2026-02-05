@@ -65,16 +65,12 @@ def train_part2(args):
     if args.subset and args.subset < 1.0:
         from torch.utils.data import Subset
         train_size = int(len(train_dataset) * args.subset)
-        val_size = int
-        (len(val_dataset) * args.subset)
         
         train_indices = random.sample(range(len(train_dataset)), train_size)
-        val_indices = random.sample(range(len(val_dataset)), val_size)
-        
         train_dataset = Subset(train_dataset, train_indices)
-        val_dataset = Subset(val_dataset, val_indices)
         
-        print(f"  Using {args.subset*100:.0f}% subset: Train={len(train_dataset)}, Valid={len(val_dataset)}")
+        print(f"  Using {args.subset*100:.0f}% of TRAINING data: {len(train_dataset)} samples")
+        print(f"  Validation set kept full: {len(val_dataset)} samples")
     
     train_loader = get_dataloader(train_dataset, batch_size=config['batch_size'], shuffle=True)
     val_loader = get_dataloader(val_dataset, batch_size=config['batch_size'], shuffle=False)
