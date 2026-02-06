@@ -184,16 +184,58 @@ class Trainer:
                 print(f"  >>> New best model! IoU: {val_metrics['mean_iou']:.4f}")
             else:
                 self.epochs_without_improvement += 1
+            if epoch % 5 == 0:
+                self.save_checkpoint(f'checkpoint_epoch_{epoch}.pth', val_metrics)
             
-            # ... (rest of train loop remains same until end of class)
-
-    # ... (rest of Trainer class methods if any) ...
-
-    # END train method
+            if self.epochs_without_improvement >= early_stopping_patience:
+                print(f"\nEarly stopping at epoch {epoch}!")
+                break
+        
+        self.save_checkpoint('final_model.pth', val_metrics)
+        self.writer.close()
+        
+        # Report high-loss samples
+        if self.high_loss_samples:
+            print(f"\n⚠️ High-loss batches detected: {len(self.high_loss_samples)}")
+            # Save to file for analysis
+            import json
+            with open(self.log_dir / 'high_loss_batches.json', 'w') as f:
+                json.dump(self.high_loss_samples, f, indent=2)
+            print(f"   Saved to: {self.log_dir / 'high_loss_batches.json'}")
+        
+        print(f"\nTraining complete! Best IoU: {self.best_metric:.4f}")
     
-    # ... (save_checkpoint, load_checkpoint remain same) ...
-
-# ... (Trainer class ends) ...
+    def save_checkpoint(self, filename: str, metrics: Dict = None):
+        checkpoint = {
+            'epoch': self.current_epoch,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'best_metric': self.best_metric,
+            'metrics': metrics
+        }
+        if self.scheduler:
+            checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
+        
+        # Try to save with error handling (file lock issues on Windows)
+        try:
+            torch.save(checkpoint, self.checkpoint_dir / filename)
+        except RuntimeError as e:
+            print(f"  ⚠️ Warning: Could not save {filename}: {e}")
+            # Try alternative filename
+            alt_filename = f"backup_{filename}"
+            try:
+                torch.save(checkpoint, self.checkpoint_dir / alt_filename)
+                print(f"  ✅ Saved as {alt_filename} instead")
+            except RuntimeError:
+                print(f"  ❌ Could not save checkpoint, continuing training...")
+    
+    def load_checkpoint(self, filename: str):
+        checkpoint = torch.load(self.checkpoint_dir / filename, map_location=self.device)
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.current_epoch = checkpoint['epoch']
+        self.best_metric = checkpoint['best_metric']
+            
 
 
 def create_trainer(model: nn.Module, phase: int, config: Dict, class_names: list = None) -> Trainer:
