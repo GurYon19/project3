@@ -25,7 +25,7 @@ PART2_CONFIG = {
     "num_classes": 1,
     "batch_size": 64,
     "epochs": 100,
-    "learning_rate": 8e-3,  # Increased LR
+    "learning_rate": 2e-3,  # Increased LR
     "coord_weight": 2.0,    # Light L1 penalty for center drift
     "weight_decay": 1e-4,
     "freeze_backbone": True,  # Keep backbone frozen initially

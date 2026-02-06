@@ -284,7 +284,7 @@ def create_trainer(model: nn.Module, phase: int, config: Dict, class_names: list
         print(f"  Optimizer: Full Training (Backbone LR={backbone_lr:.6f})")
     
     optimizer = optim.AdamW(param_groups, weight_decay=config.get('weight_decay', 1e-4))
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=4, factor=0.8)
     
     # Store config in trainer for reference
     trainer = Trainer(model=model, criterion=criterion, optimizer=optimizer, scheduler=scheduler,
