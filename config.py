@@ -18,17 +18,17 @@ for dir_path in [DATA_DIR, CHECKPOINTS_DIR, LOGS_DIR, OUTPUTS_DIR]:
 BACKBONE = "mobilenet_v3_small"
 BACKBONE_OUT_FEATURES = 576
 PRETRAINED = True
-IMAGE_SIZE = 224
+IMAGE_SIZE = 448  # Increased for maximum detail
 
 # Part 2 Config - Pure DIoU, Head-Only Training
 PART2_CONFIG = {
     "num_classes": 1,
     "batch_size": 16,
-    "epochs": 30,
+    "epochs": 60,
     "learning_rate": 2e-3,  # Only for detection head
     "weight_decay": 1e-4,
-    "freeze_backbone": True,  # Keep backbone frozen
-    "unfreeze_epoch": None,  # Never unfreeze (head-only training)
+    "freeze_backbone": True,  # Keep backbone frozen initially
+    "unfreeze_epoch": 5,  # Unfreeze top layers at epoch 5
 }
 
 # Part 3 Config

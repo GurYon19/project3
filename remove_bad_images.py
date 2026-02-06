@@ -25,6 +25,10 @@ def remove_images_from_dataset(worst_dir: str, data_dir: str):
     
     # Get list of images to delete (exclude JSON files)
     to_delete = []
+    
+    # User requested to ONLY remove images that exist in the directory (visualized ones)
+    print(f"Scanning {worst_path} for worst_*.jpg images to remove...")
+    
     for f in worst_path.glob('worst_*.jpg'):
         original_name = extract_original_filename(f.name)
         if original_name:

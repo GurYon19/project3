@@ -149,7 +149,7 @@ class Trainer:
         for epoch in range(epochs):
             self.current_epoch = epoch
             
-            if unfreeze_epoch and epoch == unfreeze_epoch:
+            if unfreeze_epoch is not None and epoch == unfreeze_epoch:
                 print(f"\n>>> Unfreezing backbone at epoch {epoch} with reduced LR")
                 self.model.unfreeze_backbone(num_layers=3)  # Gradual: only last 3 layers
                 # Reduce learning rate for fine-tuning

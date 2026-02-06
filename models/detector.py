@@ -19,17 +19,21 @@ class ObjectDetector(nn.Module):
         self.backbone = get_backbone(pretrained=pretrained, freeze=freeze_backbone)
         in_features = self.backbone.out_channels
         
-        self.pool = nn.AdaptiveAvgPool2d(1)
+        # Use 4x4 pooling to preserve spatial information (Top-Left vs Bottom-Right)
+        # 1x1 pooling destroys too much info for regression
+        self.pool = nn.AdaptiveAvgPool2d(4)
+        
+        flat_features = in_features * 16  # 576 * 4 * 4
         
         if phase == 2:
-            self.head = SingleObjectHead(in_features=in_features)
+            self.head = SingleObjectHead(in_features=flat_features)
         else:
-            self.head = MultiObjectHead(in_features=in_features, num_classes=num_classes, max_objects=max_objects)
+            self.head = MultiObjectHead(in_features=flat_features, num_classes=num_classes, max_objects=max_objects)
     
     def forward(self, x: torch.Tensor):
         features = self.backbone(x)
         pooled = self.pool(features)
-        flat = pooled.view(pooled.size(0), -1)
+        flat = pooled.view(pooled.size(0), -1)  # Flatten (B, 576, 4, 4) -> (B, 9216)
         return self.head(flat)
     
     def freeze_backbone(self):

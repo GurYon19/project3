@@ -62,7 +62,7 @@ def visualize_prediction(image_path, pred_box, gt_box, iou, output_path):
     return img
 
 
-def analyze_worst_predictions(data_dir: str, checkpoint_path: str, output_dir: str, top_k: int = 20):
+def analyze_worst_predictions(data_dir: str, checkpoint_path: str, output_dir: str, top_k: int = 20, split: str = 'valid'):
     """Find and visualize worst predictions."""
     
     data_path = Path(data_dir)
@@ -70,7 +70,7 @@ def analyze_worst_predictions(data_dir: str, checkpoint_path: str, output_dir: s
     output_path.mkdir(parents=True, exist_ok=True)
     
     # Load annotations
-    annotations_file = data_path / 'valid' / '_annotations.coco.json'
+    annotations_file = data_path / split / '_annotations.coco.json'
     with open(annotations_file, 'r') as f:
         coco_data = json.load(f)
     
@@ -87,13 +87,13 @@ def analyze_worst_predictions(data_dir: str, checkpoint_path: str, output_dir: s
     
     # Evaluate each image
     results = []
-    print(f"\nEvaluating {len(img_id_to_info)} validation images...")
+    print(f"\nEvaluating {len(img_id_to_info)} {split} images...")
     
     for img_id, img_info in img_id_to_info.items():
         if img_id not in img_id_to_ann:
             continue
             
-        img_path = data_path / 'valid' / img_info['file_name']
+        img_path = data_path / split / img_info['file_name']
         if not img_path.exists():
             continue
         
@@ -198,6 +198,7 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint', type=str, default='checkpoints/part2/best_model.pth', help='Model checkpoint')
     parser.add_argument('--output', type=str, default='outputs/worst_predictions', help='Output directory')
     parser.add_argument('--top-k', type=int, default=20, help='Number of worst predictions to show')
+    parser.add_argument('--split', type=str, default='valid', choices=['train', 'valid', 'test'], help='Dataset split to analyze')
     
     args = parser.parse_args()
-    analyze_worst_predictions(args.data_dir, args.checkpoint, args.output, args.top_k)
+    analyze_worst_predictions(args.data_dir, args.checkpoint, args.output, args.top_k, args.split)
