@@ -244,7 +244,7 @@ def create_trainer(model: nn.Module, phase: int, config: Dict, class_names: list
     device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
     
     if phase == 2:
-        criterion = get_loss_function(phase)
+        criterion = get_loss_function(phase, coord_weight=config.get('coord_weight', 0.0))
     else:
         criterion = get_loss_function(phase, lambda_box=config.get('lambda_box', 5.0),
                                        lambda_cls=config.get('lambda_cls', 1.0),
