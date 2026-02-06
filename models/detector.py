@@ -21,9 +21,10 @@ class ObjectDetector(nn.Module):
         
         # Use 4x4 pooling to preserve spatial information (Top-Left vs Bottom-Right)
         # 1x1 pooling destroys too much info for regression
-        self.pool = nn.AdaptiveAvgPool2d(4)
+        self.output_grid_size = 4
+        self.pool = nn.AdaptiveAvgPool2d(self.output_grid_size)
         
-        flat_features = in_features * 16  # 576 * 4 * 4
+        flat_features = in_features * (self.output_grid_size ** 2)
         
         if phase == 2:
             self.head = SingleObjectHead(in_features=flat_features)

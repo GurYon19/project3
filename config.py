@@ -23,9 +23,9 @@ IMAGE_SIZE = 448  # Increased for maximum detail
 # Part 2 Config - Pure DIoU, Head-Only Training
 PART2_CONFIG = {
     "num_classes": 1,
-    "batch_size": 16,
+    "batch_size": 64,
     "epochs": 60,
-    "learning_rate": 2e-3,  # Only for detection head
+    "learning_rate": 5e-3,  # Scaled for Batch Size 64
     "weight_decay": 1e-4,
     "freeze_backbone": True,  # Keep backbone frozen initially
     "unfreeze_epoch": 5,  # Unfreeze top layers at epoch 5
