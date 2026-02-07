@@ -89,6 +89,15 @@ def train_part2(args):
     # Trainer
     trainer = create_trainer(model, phase=2, config=config)
     
+    if args.resume:
+        print(f"\n>>> RESUMING training from checkpoint: {args.resume}")
+        try:
+            trainer.load_checkpoint(args.resume)
+            print(f"    Resumed at epoch {trainer.current_epoch}")
+        except FileNotFoundError:
+            print(f"❌ Checkpoint '{args.resume}' not found in {config['checkpoint_dir']}")
+            print("Beginning fresh training...")
+    
     # Train
     trainer.train(
         train_loader=train_loader,
@@ -155,6 +164,8 @@ if __name__ == "__main__":
     parser.add_argument('--subset', type=float, default=None, 
                        help="Fraction of dataset to use (e.g., 0.4 for 40%)")
     parser.add_argument('--demo', action='store_true', help="Run demo with synthetic data")
+    
+    parser.add_argument('--resume', type=str, default=None, help="Path to checkpoint to resume from")
     
     args = parser.parse_args()
     
