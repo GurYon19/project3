@@ -19,10 +19,10 @@ class DetectionTransform:
     
     def __init__(
         self,
-        image_size: int = 224,
+        image_size: int = 448,
         is_training: bool = True,
-        h_flip_prob: float = 0.5,
-        color_jitter: bool = True
+        h_flip_prob: float = 0.0,
+        color_jitter: bool = False
     ):
         self.image_size = image_size
         self.is_training = is_training
@@ -82,7 +82,7 @@ class DetectionTransform:
 class InferenceTransform:
     """Simple transform for inference (no augmentation)."""
     
-    def __init__(self, image_size: int = 224):
+    def __init__(self, image_size: int = 448):
         self.image_size = image_size
         self.normalize = T.Normalize(
             mean=[0.485, 0.456, 0.406],
@@ -97,7 +97,7 @@ class InferenceTransform:
         return image
 
 
-def get_transforms(is_training: bool = True, image_size: int = 224) -> DetectionTransform:
+def get_transforms(is_training: bool = True, image_size: int = 448) -> DetectionTransform:
     """
     Get detection transforms.
     
@@ -111,12 +111,12 @@ def get_transforms(is_training: bool = True, image_size: int = 224) -> Detection
     return DetectionTransform(
         image_size=image_size,
         is_training=is_training,
-        h_flip_prob=0.5 if is_training else 0.0,
-        color_jitter=is_training
+        h_flip_prob=0.0,
+        color_jitter=False
     )
 
 
-def get_inference_transform(image_size: int = 224) -> InferenceTransform:
+def get_inference_transform(image_size: int = 448) -> InferenceTransform:
     """
     Get inference transform.
     

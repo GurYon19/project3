@@ -55,7 +55,7 @@ def cxwh_to_xyxy(box, img_w, img_h):
     return x1, y1, x2, y2
 
 
-def draw_detection(image: np.ndarray, box: list, label: str = "Boar", color=(0, 255, 0)):
+def draw_detection(image: np.ndarray, box: list, label: str = "Tiger", color=(0, 255, 0)):
     """Draw bounding box and label on image."""
     h, w = image.shape[:2]
     x1, y1, x2, y2 = cxwh_to_xyxy(box, w, h)
@@ -107,9 +107,10 @@ def run_inference_on_folder(model, folder_path: str, output_folder: str = None):
     output.mkdir(parents=True, exist_ok=True)
     
     extensions = ['*.jpg', '*.jpeg', '*.png', '*.JPG', '*.JPEG', '*.PNG']
-    image_paths = []
+    image_paths = set()
     for ext in extensions:
-        image_paths.extend(folder.glob(ext))
+        image_paths.update(folder.glob(ext))
+    image_paths = list(image_paths)
     
     print(f"Found {len(image_paths)} images")
     

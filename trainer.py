@@ -276,7 +276,7 @@ def create_trainer(model: nn.Module, phase: int, config: Dict, class_names: list
         
     else:
         # FULLY UNFROZEN (Standard)
-        backbone_lr = head_lr * 0.01
+        backbone_lr = head_lr * 0.02
         param_groups = [
             {'params': model.backbone.parameters(), 'lr': backbone_lr, 'name': 'backbone'},
             {'params': model.head.parameters(), 'lr': head_lr, 'name': 'head'}
