@@ -1,0 +1,101 @@
+{
+  "root": "data/part3",
+  "splits": {
+    "train": {
+      "split": "train",
+      "num_images": 34157,
+      "num_annotations": 53175,
+      "objects_per_image_hist": {
+        "1": 20026,
+        "2": 9244,
+        "3": 4887
+      },
+      "boxes_per_class": {
+        "person": 42747,
+        "car": 4291,
+        "cat": 3279,
+        "dog": 2858
+      },
+      "images_with_class_present": {
+        "person": 28433,
+        "car": 2970,
+        "cat": 2959,
+        "dog": 2548
+      },
+      "num_images_with_2plus_classes": 2688,
+      "cooccurrence_counts": {
+        "person + car": 1127,
+        "person + dog": 882,
+        "person + cat": 429,
+        "dog + cat": 139,
+        "car + dog": 135,
+        "car + cat": 106
+      }
+    },
+    "valid": {
+      "split": "valid",
+      "num_images": 9287,
+      "num_annotations": 14527,
+      "objects_per_image_hist": {
+        "1": 5424,
+        "2": 2486,
+        "3": 1377
+      },
+      "boxes_per_class": {
+        "person": 11795,
+        "car": 1085,
+        "cat": 875,
+        "dog": 772
+      },
+      "images_with_class_present": {
+        "person": 7784,
+        "cat": 788,
+        "car": 737,
+        "dog": 677
+      },
+      "num_images_with_2plus_classes": 688,
+      "cooccurrence_counts": {
+        "person + car": 286,
+        "person + dog": 217,
+        "person + cat": 107,
+        "dog + cat": 37,
+        "car + dog": 34,
+        "car + cat": 29
+      }
+    },
+    "test": {
+      "split": "test",
+      "num_images": 4545,
+      "num_annotations": 7122,
+      "objects_per_image_hist": {
+        "1": 2662,
+        "2": 1189,
+        "3": 694
+      },
+      "boxes_per_class": {
+        "person": 5740,
+        "car": 570,
+        "cat": 430,
+        "dog": 382
+      },
+      "images_with_class_present": {
+        "person": 3798,
+        "car": 387,
+        "cat": 383,
+        "dog": 344
+      },
+      "num_images_with_2plus_classes": 359,
+      "cooccurrence_counts": {
+        "person + car": 149,
+        "person + dog": 118,
+        "person + cat": 64,
+        "car + dog": 18,
+        "dog + cat": 15,
+        "car + cat": 11
+      }
+    }
+  },
+  "warnings": [
+    "LOW MULTI-CLASS: only 2688/34157 train images have \u22652 classes (<10%). This can weaken multi-class learning."
+  ]
+}

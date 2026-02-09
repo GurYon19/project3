@@ -1,0 +1,16 @@
+{
+  "num_classes": 4,
+  "id_to_name": {
+    "0": "person",
+    "1": "car",
+    "2": "dog",
+    "3": "cat"
+  },
+  "name_to_id": {
+    "person": 0,
+    "car": 1,
+    "dog": 2,
+    "cat": 3
+  },
+  "max_objects": 3
+}

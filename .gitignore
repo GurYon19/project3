@@ -3,3 +3,11 @@ datasets.zip
 dataset.zip
 outputs/
 old datasets/
+
+data/raw_coco/
+data/part3/train/images/
+data/part3/valid/images/
+data/part3/test/images/
+
+# Zips / archives
+*.zip
