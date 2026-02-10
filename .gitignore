@@ -11,3 +11,25 @@ data/part3/test/images/
 
 # Zips / archives
 *.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environments
+.venv/
+env/
+venv/
+
+# Outputs
+outputs/
+logs/
+checkpoints/
+
+# Data
+data/
+datasets/
+
+# OS
+.DS_Store
