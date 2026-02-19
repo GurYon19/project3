@@ -3,3 +3,6 @@ datasets.zip
 dataset.zip
 outputs/
 old datasets/
+checkpoints/
+logs/
+results/
