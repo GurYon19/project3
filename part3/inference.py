@@ -142,23 +142,26 @@ def decode_slots(
     pred_obj_logits: torch.Tensor, # (K,)
     pred_cls_logits: torch.Tensor, # (K,C)
     score_thresh: float,
+    obj_thresh: float = 0.20,
 ) -> Dict[str, np.ndarray]:
     """
     Returns dict with keys: boxes(N,4), scores(N,), labels(N,)
+    We keep a slot if obj >= obj_thresh (less brittle than obj*cls).
+    Scores used for ranking/NMS are obj * cls_score (still useful), but we don't filter by it.
     """
-    K = pred_boxes.shape[0]
     obj = torch.sigmoid(pred_obj_logits)                 # (K,)
     cls_prob = torch.softmax(pred_cls_logits, dim=-1)    # (K,C)
     cls_score, cls_label = torch.max(cls_prob, dim=-1)   # (K,), (K,)
 
     score = obj * cls_score
-    keep = score >= score_thresh
+    keep = obj >= obj_thresh
 
     boxes = pred_boxes[keep].detach().cpu().numpy()
     scores = score[keep].detach().cpu().numpy()
     labels = cls_label[keep].detach().cpu().numpy().astype(np.int64)
 
     return {"boxes": boxes, "scores": scores, "labels": labels}
+
 
 
 def draw_detections(
@@ -205,6 +208,14 @@ def run_on_image(
     # model expects normalized resized inputs, but we want to draw on original image
     inp = preprocess_image_bgr(img_bgr, image_size).to(device)
     out = model(inp)
+    #print all slots
+    obj = torch.sigmoid(out.pred_obj_logits[0]).detach().cpu().numpy()
+    cls_prob = torch.softmax(out.pred_cls_logits[0], dim=-1).detach().cpu().numpy()
+    cls_label = cls_prob.argmax(axis=-1)
+    print("Slots:")
+    for k in range(out.pred_boxes.shape[1]):
+        print(f"  Slot {k}: obj={obj[k]:.3f} cls={cls_label[k]} ({cls_prob[k, cls_label[k]]:.3f})")
+
 
     # decode K slots for the single image
     det = decode_slots(
@@ -212,11 +223,19 @@ def run_on_image(
         pred_obj_logits=out.pred_obj_logits[0],
         pred_cls_logits=out.pred_cls_logits[0],
         score_thresh=score_thresh,
+        obj_thresh=0.15,   # try 0.10–0.20
     )
+
 
     # NMS (only across kept detections)
     if det["boxes"].shape[0] > 0:
-        keep = nms(det["boxes"], det["scores"], nms_iou_thresh)
+        keep = []
+        for c in np.unique(det["labels"]):
+            idx = np.where(det["labels"] == c)[0]
+            kept_c = nms(det["boxes"][idx], det["scores"][idx], nms_iou_thresh)
+            keep.extend(idx[kept_c].tolist())
+
+        keep = sorted(keep, key=lambda i: det["scores"][i], reverse=True)
         det = {k: v[keep] for k, v in det.items()}
 
     vis = draw_detections(img_bgr, det, class_names)

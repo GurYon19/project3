@@ -13,6 +13,10 @@ Returns per sample:
     labels: LongTensor (K=3,)    class ids in [0..C-1]
     mask:  BoolTensor (K=3,)     True for real objects, False for padding
 
+Key behaviors:
+- Filters annotations to ONLY the target classes (0..num_classes-1).
+- If an image has >K target objects, keeps the TOP-K by area (w*h), deterministic.
+
 Includes a small test you can run:
   python -m part3.dataset --split train --n 3
 It will print shapes and save a few GT visualization images to outputs/part3/gt_sanity/
@@ -96,6 +100,17 @@ def _resize_image_and_boxes(
     return img_resized, boxes
 
 
+def _select_topk_by_area(boxes_xywh: np.ndarray, labels: np.ndarray, k: int):
+    """
+    Keep top-k boxes by area (w*h). Deterministic.
+    """
+    if boxes_xywh.shape[0] <= k:
+        return boxes_xywh, labels
+    areas = boxes_xywh[:, 2] * boxes_xywh[:, 3]
+    idx = np.argsort(-areas)[:k]  # descending
+    return boxes_xywh[idx], labels[idx]
+
+
 class Part3CocoDataset(Dataset):
     def __init__(
         self,
@@ -162,13 +177,23 @@ class Part3CocoDataset(Dataset):
 
         anns = self.anns_by_img.get(img_id, [])
         # COCO bbox is [x, y, w, h] in pixels
-        boxes_xywh = np.array([a["bbox"] for a in anns], dtype=np.float32)
-        labels = np.array([a["category_id"] for a in anns], dtype=np.int64)
+        boxes_xywh = np.array([a["bbox"] for a in anns], dtype=np.float32) if len(anns) else np.zeros((0, 4), np.float32)
+        labels = np.array([a["category_id"] for a in anns], dtype=np.int64) if len(anns) else np.zeros((0,), np.int64)
 
-        # Safety: dataset should already be filtered to 1..K objects
-        if boxes_xywh.shape[0] > self.max_objects:
-            boxes_xywh = boxes_xywh[: self.max_objects]
-            labels = labels[: self.max_objects]
+        # -------------------------------------------------
+        # IMPORTANT: Filter to only our target classes 0..C-1
+        # (Fixes "plane/bird/etc" images slipping in via annotations.)
+        # -------------------------------------------------
+        if labels.size > 0:
+            keep = (labels >= 0) & (labels < self.num_classes)
+            boxes_xywh = boxes_xywh[keep]
+            labels = labels[keep]
+
+        # -------------------------------------------------
+        # If more than K objects, keep TOP-K by area (deterministic)
+        # (Fixes "randomly truncating" which breaks multi-person learning)
+        # -------------------------------------------------
+        boxes_xywh, labels = _select_topk_by_area(boxes_xywh, labels, self.max_objects)
 
         boxes_xyxy = _xywh_to_xyxy(boxes_xywh)
 
@@ -201,9 +226,9 @@ class Part3CocoDataset(Dataset):
         img_t = torch.from_numpy(img_rgb).permute(2, 0, 1).contiguous()
 
         target = {
-            "boxes": torch.from_numpy(boxes_out),         # (K,4) float
-            "labels": torch.from_numpy(labels_out),       # (K,) long
-            "mask": torch.from_numpy(mask_out),           # (K,) bool
+            "boxes": torch.from_numpy(boxes_out),   # (K,4) float
+            "labels": torch.from_numpy(labels_out), # (K,) long
+            "mask": torch.from_numpy(mask_out),     # (K,) bool
         }
 
         meta = {
@@ -290,9 +315,9 @@ def main():
     s0 = ds[0]
     print("[SAMPLE 0]")
     print("  img:", tuple(s0.img.shape), s0.img.dtype)
-    print("  boxes:", tuple(s0.target["boxes"].shape), s0.target["boxes"].dtype)
-    print("  labels:", tuple(s0.target["labels"].shape), s0.target["labels"].dtype)
-    print("  mask:", tuple(s0.target["mask"].shape), s0.target["mask"].dtype)
+    print("  boxes:", tuple(s0.target['boxes'].shape), s0.target['boxes'].dtype)
+    print("  labels:", tuple(s0.target['labels'].shape), s0.target['labels'].dtype)
+    print("  mask:", tuple(s0.target['mask'].shape), s0.target['mask'].dtype)
     print("  meta:", s0.meta)
 
     # Dataloader check

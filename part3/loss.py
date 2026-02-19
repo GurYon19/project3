@@ -33,6 +33,8 @@ import torch.nn.functional as F
 
 import config
 
+import itertools
+
 
 # ----------------------------
 # Geometry: IoU + CIoU
@@ -146,6 +148,59 @@ def greedy_match_by_iou(pred_boxes: torch.Tensor, gt_boxes: torch.Tensor) -> Lis
 
     return pairs
 
+def best_match_k3_cost(
+    pred_boxes: torch.Tensor,      # (K,4)
+    pred_cls_logits: torch.Tensor, # (K,C)
+    gt_boxes: torch.Tensor,        # (N,4)
+    gt_labels: torch.Tensor,       # (N,)
+    lambda_iou: float = 1.0,
+    lambda_cls: float = 0.5,
+):
+    """
+    Brute-force optimal one-to-one assignment for K<=3.
+    Returns list of (pred_idx, gt_idx) pairs length N (or <=K).
+    Cost = lambda_iou*(1-IoU) + lambda_cls*CE(class)
+    """
+    K = pred_boxes.shape[0]
+    N = gt_boxes.shape[0]
+    if N == 0 or K == 0:
+        return []
+
+    # Cost components
+    iou = pairwise_iou_xyxy(pred_boxes, gt_boxes)  # (K,N)
+    cost_iou = 1.0 - iou                           # (K,N)
+
+    # Class cost: CE for each (k,n)
+    # pred_cls_logits[k] vs gt_labels[n]
+    # We'll compute -log softmax prob of gt class
+    logp = F.log_softmax(pred_cls_logits, dim=-1)  # (K,C)
+    cost_cls = -logp[:, gt_labels]                 # (K,N)
+
+    cost = lambda_iou * cost_iou + lambda_cls * cost_cls
+
+    # Choose N distinct preds out of K and assign to N gts
+    # Because N<=K and K=3, brute force is tiny.
+    best_pairs = None
+    best_cost = None
+
+    M = min(N, K)
+    pred_indices = list(range(K))
+    gt_indices = list(range(N))
+
+    for chosen_preds in itertools.permutations(pred_indices, r=M):
+        for chosen_gts in itertools.permutations(gt_indices, r=M):
+            total = 0.0
+            pairs = []
+            for p_idx, g_idx in zip(chosen_preds, chosen_gts):
+                total += float(cost[p_idx, g_idx].item())
+                pairs.append((p_idx, g_idx))
+            if best_cost is None or total < best_cost:
+                best_cost = total
+                best_pairs = pairs
+
+
+    return best_pairs if best_pairs is not None else []
+
 
 # ----------------------------
 # Loss module
@@ -172,8 +227,15 @@ class Part3Loss(nn.Module):
         self.lambda_cls = float(lambda_cls) if lambda_cls is not None else float(cfg["lambda_cls"])
         self.lambda_obj = float(lambda_obj) if lambda_obj is not None else float(cfg["lambda_obj"])
 
-        self.bce = nn.BCEWithLogitsLoss(reduction="mean")
-        self.ce = nn.CrossEntropyLoss(reduction="mean")
+        pos_weight = torch.tensor([3.0])  # penalize predicting "object" too easily
+        self.register_buffer("obj_pos_weight", pos_weight)
+        self.bce = nn.BCEWithLogitsLoss(reduction="mean", pos_weight=self.obj_pos_weight)
+
+        # Person is very frequent -> lower weight
+        class_weights = torch.tensor([0.25, 1.0, 1.2, 1.2], dtype=torch.float32)
+        self.register_buffer("class_weights", class_weights)
+        self.ce = nn.CrossEntropyLoss(weight=self.class_weights, reduction="mean")
+
 
     def forward(
         self,
@@ -208,7 +270,15 @@ class Part3Loss(nn.Module):
             gt_boxes = gt_boxes_all[b][gt_mask]    # (N,4)
             gt_labels = gt_labels_all[b][gt_mask]  # (N,)
 
-            pairs = greedy_match_by_iou(pred_boxes[b], gt_boxes)
+            pairs = best_match_k3_cost(
+                pred_boxes=pred_boxes[b],
+                pred_cls_logits=pred_cls_logits[b],
+                gt_boxes=gt_boxes,
+                gt_labels=gt_labels,
+                lambda_iou=1.0,
+                lambda_cls=0.5,
+            )
+
             if len(pairs) == 0:
                 continue
 

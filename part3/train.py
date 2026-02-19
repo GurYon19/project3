@@ -15,6 +15,7 @@ from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.data import RandomSampler, Subset
 
 import config
 from part3.dataset import Part3CocoDataset, collate_fn
@@ -31,6 +32,17 @@ def _limit_loader(ds, limit: int):
         return ds
     from torch.utils.data import Subset
     return Subset(ds, list(range(limit)))
+
+def _make_sampler(ds, limit: int, shuffle: bool):
+    """
+    If limit>0: sample 'limit' examples RANDOMLY each epoch.
+    If limit==0: return None (use normal shuffle).
+    """
+    if limit is None or limit <= 0 or limit >= len(ds):
+        return None
+
+    # RandomSampler draws a fresh random set each epoch (no replacement)
+    return RandomSampler(ds, replacement=False, num_samples=limit)
 
 
 def main():
@@ -56,17 +68,21 @@ def main():
     train_ds = Part3CocoDataset(split="train")
     val_ds = Part3CocoDataset(split="valid")
 
-    train_ds = _limit_loader(train_ds, args.limit_train)
-    val_ds = _limit_loader(val_ds, args.limit_val)
+    train_sampler = _make_sampler(train_ds, args.limit_train, shuffle=True)
 
     train_loader = DataLoader(
         train_ds,
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=(train_sampler is None),   # only shuffle if no sampler
+        sampler=train_sampler,
         num_workers=args.num_workers,
         pin_memory=(device.type == "cuda"),
         collate_fn=collate_fn,
     )
+
+    if args.limit_val and args.limit_val < len(val_ds):
+        val_ds = Subset(val_ds, list(range(args.limit_val)))
+
     val_loader = DataLoader(
         val_ds,
         batch_size=args.batch_size,
@@ -91,8 +107,10 @@ def main():
         weight_decay=args.weight_decay,
     )
 
-    # Cosine LR (epoch-based)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=max(args.epochs, 20)  # don't collapse LR on short runs
+    )
 
     # Loss
     loss_fn = Part3Loss()

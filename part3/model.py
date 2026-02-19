@@ -2,32 +2,38 @@
 """
 Part 3 fixed-capacity multi-object detector (K=3 slots, C=4 classes).
 
-Design (high-level):
-- Backbone: MobileNetV3-Small (reuse models/backbone.py)
-- Head: fixed "set prediction" head producing K=3 slots per image:
+UPDATED DESIGN (fixes "all slots identical" issue):
+- Backbone: MobileNetV3-Small (via models/backbone.py) -> feature map (B, C, h, w)
+- Projection: 1x1 conv to d_model tokens (B, d_model, h, w)
+- Slot Queries: learnable K queries (K, d_model)
+- Slot Attention (mini-DETR style):
+    tokens = flatten spatial -> (B, HW, d_model)
+    attn = softmax(QK^T / sqrt(d_model)) -> (B, K, HW)
+    ctx  = attn @ tokens -> (B, K, d_model)
+- Head (shared MLP):
     pred_boxes:      (B, K, 4)  normalized xyxy in [0,1]
     pred_obj_logits: (B, K)     objectness logits (slot used vs empty)
-    pred_cls_logits: (B, K, C)  class logits for used slots
+    pred_cls_logits: (B, K, C)  class logits
 
-Core idea:
-- Extract a compact global-but-informative feature vector from the backbone feature map.
-- For each slot k, concatenate that vector with a learnable slot embedding q_k.
-- Run a shared MLP to produce slot outputs.
-
-This matches the project constraint: fixed capacity (max_objects=3).
+Assumptions / Limitations:
+- Fixed capacity K (max objects per image). If an image has >K objects, some will be missed.
+- No explicit "no class": objectness handles empty slots.
+- The attention is single-step (not multi-layer transformer), but it’s enough to break symmetry and allow
+  different slots to focus on different spatial regions.
 """
 
 from __future__ import annotations
 
 import argparse
+import math
 from dataclasses import dataclass
-from typing import Dict, Any, Tuple
+from typing import Tuple
 
 import torch
 import torch.nn as nn
 
 import config
-from models.backbone import get_backbone  # expected existing helper
+from models.backbone import get_backbone
 
 
 @dataclass
@@ -40,7 +46,7 @@ class ModelOutput:
 class SlotHead(nn.Module):
     """
     Shared slot head MLP.
-    Input:  (B, K, D) where D = feat_dim + slot_dim
+    Input:  (B, K, D)
     Output: boxes (B,K,4), obj_logits (B,K), cls_logits (B,K,C)
     """
     def __init__(self, in_dim: int, hidden_dim: int, num_classes: int, dropout: float = 0.1):
@@ -61,23 +67,22 @@ class SlotHead(nn.Module):
         self.obj_head = nn.Linear(hidden_dim, 1)
         self.cls_head = nn.Linear(hidden_dim, num_classes)
 
-        # init: encourage low objectness at start (optional but helps stability)
+        # Encourage "empty" at init (helps reduce early false positives)
         nn.init.constant_(self.obj_head.bias, -2.0)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         x: (B, K, D)
         """
-        h = self.mlp(x)                          # (B, K, H)
-        box_raw = self.box_head(h)               # (B, K, 4)
+        h = self.mlp(x)                            # (B, K, H)
+        box_raw = self.box_head(h)                 # (B, K, 4)
         obj_logits = self.obj_head(h).squeeze(-1)  # (B, K)
-        cls_logits = self.cls_head(h)            # (B, K, C)
+        cls_logits = self.cls_head(h)              # (B, K, C)
 
-        # Boxes: constrain to [0,1]
-        # We output normalized coordinates and will let the loss handle geometry.
+        # Constrain boxes to [0,1]
         box_norm = torch.sigmoid(box_raw)
 
-        # Ensure xyxy ordering (x1<=x2, y1<=y2) in a differentiable way:
+        # Ensure xyxy ordering differentiably
         x1y1 = torch.minimum(box_norm[..., 0:2], box_norm[..., 2:4])
         x2y2 = torch.maximum(box_norm[..., 0:2], box_norm[..., 2:4])
         boxes = torch.cat([x1y1, x2y2], dim=-1)
@@ -94,7 +99,7 @@ class Part3Detector(nn.Module):
         pretrained: bool | None = None,
         backbone_out_features: int | None = None,
         image_size: int | None = None,
-        slot_dim: int = 128,
+        d_model: int = 256,
         hidden_dim: int = 512,
     ):
         super().__init__()
@@ -108,29 +113,34 @@ class Part3Detector(nn.Module):
         bb_pretrained = bool(pretrained) if pretrained is not None else bool(config.PRETRAINED)
         bb_out = int(backbone_out_features) if backbone_out_features is not None else int(config.BACKBONE_OUT_FEATURES)
 
-        # Backbone should output a feature map of shape (B, C, H, W)
+        # Backbone should output a feature map (B, C, h, w)
+        # NOTE: your get_backbone() likely handles pretrained internally; we call it simply.
         self.backbone = get_backbone(bb_name)
-        if not bb_pretrained:
-            for p in self.backbone.parameters():
-                p.requires_grad = False
         self.backbone_out = bb_out
 
-        # Light conv "neck" to keep some spatial cues and stabilize training
+        # Small neck
         self.neck = nn.Sequential(
             nn.Conv2d(self.backbone_out, self.backbone_out, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(self.backbone_out),
             nn.ReLU(inplace=True),
         )
 
-        # Pool to small grid then flatten (keeps more info than global avg only)
-        self.pool = nn.AdaptiveAvgPool2d((7, 7))
-        feat_dim = self.backbone_out * 7 * 7
+        # Project to attention embedding dim
+        self.d_model = int(d_model)
+        self.proj = nn.Conv2d(self.backbone_out, self.d_model, kernel_size=1)
 
-        # Learnable slot embeddings (K, slot_dim)
-        self.slot_embed = nn.Parameter(torch.randn(self.K, slot_dim) * 0.02)
+        # Learnable slot queries (K, d_model)
+        self.slot_embed = nn.Parameter(torch.randn(self.K, self.d_model) * 0.02)
 
-        # Shared MLP head operates on concatenated [feat || slot]
-        self.head = SlotHead(in_dim=feat_dim + slot_dim, hidden_dim=hidden_dim, num_classes=self.num_classes)
+        # Shared head maps per-slot context -> outputs
+        self.head = SlotHead(in_dim=self.d_model, hidden_dim=int(hidden_dim), num_classes=self.num_classes)
+
+        # Optional: freeze pretrained backbone weights initially via trainer
+        # (we keep the methods below)
+        if not bb_pretrained:
+            # If user explicitly asked "not pretrained", treat as frozen/random backbone scenario
+            # (You can remove this block if you want always-trainable.)
+            pass
 
     def freeze_backbone(self) -> None:
         for p in self.backbone.parameters():
@@ -144,22 +154,24 @@ class Part3Detector(nn.Module):
         """
         x: (B, 3, H, W) ImageNet normalized
         """
-        feat = self.backbone(x)   # expected (B, C, h, w)
-        feat = self.neck(feat)
-        pooled = self.pool(feat)  # (B, C, 7, 7)
-        B = pooled.shape[0]
-        vec = pooled.flatten(1)   # (B, feat_dim)
+        feat = self.backbone(x)        # (B, C, h, w)
+        feat = self.neck(feat)         # (B, C, h, w)
+        feat = self.proj(feat)         # (B, D, h, w)
 
-        # Expand to (B, K, feat_dim)
-        vec_k = vec.unsqueeze(1).expand(B, self.K, vec.shape[-1])
+        B, D, H, W = feat.shape
+        tokens = feat.flatten(2).transpose(1, 2)   # (B, HW, D)
 
-        # Slot embeddings -> (B, K, slot_dim)
-        slot = self.slot_embed.unsqueeze(0).expand(B, self.K, self.slot_embed.shape[-1])
+        # queries: (B, K, D)
+        q = self.slot_embed.unsqueeze(0).expand(B, self.K, D)
 
-        # Concatenate and predict
-        inp = torch.cat([vec_k, slot], dim=-1)  # (B, K, feat_dim+slot_dim)
-        boxes, obj_logits, cls_logits = self.head(inp)
+        # attention: (B, K, HW)
+        attn_logits = torch.matmul(q, tokens.transpose(1, 2)) / math.sqrt(D)
+        attn = torch.softmax(attn_logits, dim=-1)
 
+        # context: (B, K, D)
+        ctx = torch.matmul(attn, tokens)
+
+        boxes, obj_logits, cls_logits = self.head(ctx)
         return ModelOutput(pred_boxes=boxes, pred_obj_logits=obj_logits, pred_cls_logits=cls_logits)
 
 
@@ -198,11 +210,7 @@ def main():
     ap.add_argument("--batch-size", type=int, default=2)
     args = ap.parse_args()
 
-    if args.device is None:
-        device = config.DEVICE
-    else:
-        device = torch.device(args.device)
-
+    device = config.DEVICE if args.device is None else torch.device(args.device)
     _smoke_test(device=device, batch_size=args.batch_size)
 
 

@@ -50,7 +50,7 @@ PART3_CONFIG = {
     "weight_decay": 1e-4,
 
     "freeze_backbone": True,
-    "unfreeze_epoch": 30,
+    "unfreeze_epoch": 5,
 
     "lambda_box": 5.0,
     "lambda_cls": 1.0,
