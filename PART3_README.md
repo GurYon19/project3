@@ -133,29 +133,33 @@ python -m part3.evaluate \
   --out-dir outputs/part3 \
   --tag run2_weighted_best
 
+- Weighted loss didnt help, run inference on image from run1:
+
+python -m part3.inference \
+  --checkpoint checkpoints/part3_run1/best.pth \
+  --classes-json datasets/part3/classes.json \
+  --image-size 448 \
+  --max-objects 3 \
+  --conf-thresh 0.35 \
+  --topk 3 \
+  --image /path/to/some_test_image.jpg \
+  --out-dir outputs/part3/infer_run1
+
+output: outputs/part3/infer_run1/<image>_pred.jpg
+
+- Grab n random test images and run inference on all of them
+
+python -m part3.run_inference_batch \
+  --index-json datasets/part3/test.json \
+  --checkpoint checkpoints/part3_run1/best.pth \
+  --out-dir outputs/part3/infer_run1_test30 \
+  --n 30 \
+  --seed 42 \
+  --conf-thresh 0.35
+
+outputs: utputs/part3/infer_run1_test30/*
+
 Todo:
-
-1) Implement proper evaluation on the test set (highest priority)
-
-Reason: you need a real metric you can report, not just proxy val mIoU.
-
-What to produce:
-
-per-class AP@0.5 (person/car/dog)
-
-mAP@0.5
-
-also print precision/recall @ IoU=0.5 (optional but helpful)
-
-Run it on:
-
-datasets/part3/test.json
-
-checkpoint: checkpoints/part3_run1/best.pth
-
-This becomes the core “Results” table in the report.
-
-✅ Do this next.
 
 2) Run inference on a handful of images (for qualitative results)
 
