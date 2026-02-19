@@ -49,6 +49,21 @@ def pick_device():
         return torch.device("cuda")
     return torch.device("cpu")
 
+def compute_class_weights(counts, bg_weight=0.25):
+    import numpy as np
+    counts = np.array(counts, dtype=np.float64)
+    counts = np.maximum(counts, 1.0)
+    total = counts.sum()
+    C = len(counts)
+
+    w = total / (C * counts)      # inverse frequency normalized
+    w = w / w.mean()              # mean=1 normalization
+
+    w_full = np.zeros(C + 1, dtype=np.float64)
+    w_full[:C] = w
+    w_full[C] = bg_weight
+    return torch.tensor(w_full, dtype=torch.float32)
+
 
 def main():
     args = parse_args()
@@ -97,10 +112,16 @@ def main():
         image_size=args.image_size,
     ).to(device)
 
+    # Using counts you measured:
+    # person=8005, car=867, dog=1002
+    class_w = compute_class_weights([8005, 867, 1002], bg_weight=0.25)
+    print(f"[WEIGHTS] class_w={class_w.tolist()} (person,car,dog,bg)")
+
     criterion = FixedSlotLoss(
         num_classes=num_classes,
         max_objects=args.max_objects,
         weights=LossWeights(cls=1.0, box=5.0),
+        class_weights=class_w.to(device),
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

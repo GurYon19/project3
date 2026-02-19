@@ -128,25 +128,29 @@ class FixedSlotLoss(nn.Module):
     """
     Loss for fixed-slot detection (K=3):
       - Hungarian matching (brute-force for K=3)
-      - Classification loss (CE) over C+1 classes (incl background)
+      - Classification loss (CE) over C+1 classes (incl background), optionally class-weighted
       - CIoU loss for matched boxes
-
-    Inputs:
-      outputs: dict from model:
-        boxes:  [B,K,4]
-        logits: [B,K,C+1]
-      targets: dict from collate:
-        boxes:  [B,K,4] (padded; only first N are real via mask)
-        labels: [B,K]   (padded with background_id = C)
-        mask:   [B,K]   (True for real GT)
     """
 
-    def __init__(self, num_classes: int, max_objects: int = 3, weights: LossWeights = LossWeights()):
+    def __init__(
+        self,
+        num_classes: int,
+        max_objects: int = 3,
+        weights: LossWeights = LossWeights(),
+        class_weights: torch.Tensor | None = None,  # NEW
+    ):
         super().__init__()
         self.num_classes = num_classes
         self.bg = num_classes
         self.K = max_objects
         self.w = weights
+
+        if class_weights is not None:
+            cw = torch.as_tensor(class_weights, dtype=torch.float32)
+            assert cw.ndim == 1 and cw.numel() == (num_classes + 1)
+            self.register_buffer("class_weights", cw)
+        else:
+            self.class_weights = None
 
     def forward(self, outputs: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         pred_boxes = outputs["boxes"]      # [B,K,4]
@@ -163,8 +167,6 @@ class FixedSlotLoss(nn.Module):
         total_box = torch.tensor(0.0, device=device)
         total_matched = 0
 
-        # We'll build per-image assignment, then compute CE on all K slots
-        # (matched slots get GT class, unmatched get background).
         for b in range(B):
             pb = pred_boxes[b]    # [K,4]
             pl = pred_logits[b]   # [K,C+1]
@@ -174,7 +176,8 @@ class FixedSlotLoss(nn.Module):
             m = tgt_mask[b]       # [K]
 
             N = int(m.long().sum().item())
-            # Default: all predictions are background
+
+            # Default label for all K predictions is background
             assigned_labels = torch.full((self.K,), self.bg, dtype=torch.long, device=device)
 
             if N > 0:
@@ -183,37 +186,32 @@ class FixedSlotLoss(nn.Module):
 
                 # Cost = (1 - IoU) + class cost
                 iou = box_iou_xyxy(pb, tb_valid)  # [K,N]
-                # class negative log prob for each GT label
                 logp = F.log_softmax(pl, dim=-1)  # [K,C+1]
-                cls_cost = -logp[:, tl_valid]     # [K,N] (broadcasted index)
+                cls_cost = -logp[:, tl_valid]     # [K,N]
                 cost = (1.0 - iou) + 0.5 * cls_cost
 
-                # Pad cost to [K,K] for our matcher (only first N GT used)
+                # Pad cost to [K,K] for brute-force matcher
                 cost_full = torch.full((self.K, self.K), fill_value=10.0, device=device, dtype=cost.dtype)
                 cost_full[:, :N] = cost
 
                 pred_idx, gt_idx = hungarian_match_k3(cost_full, valid_mask=m)
 
-                # assign matched labels
+                # Assign GT labels to matched prediction slots
                 assigned_labels[pred_idx] = tl_valid[gt_idx]
 
-                # box loss on matched only
+                # Box loss for matched pairs
                 matched_pb = pb[pred_idx]
                 matched_tb = tb_valid[gt_idx]
                 box_l = ciou_loss_xyxy(matched_pb, matched_tb).mean()
                 total_box = total_box + box_l
                 total_matched += len(pred_idx)
 
-            # classification loss over all K predictions
-            cls_l = F.cross_entropy(pl, assigned_labels, reduction="mean")
+            # Classification loss over all K slots (weighted)
+            cls_l = F.cross_entropy(pl, assigned_labels, weight=self.class_weights, reduction="mean")
             total_cls = total_cls + cls_l
 
-        # Average over batch
         total_cls = total_cls / B
-        if total_matched > 0:
-            total_box = total_box / B  # per-image mean already
-        else:
-            total_box = torch.tensor(0.0, device=device)
+        total_box = total_box / B if total_matched > 0 else torch.tensor(0.0, device=device)
 
         loss = self.w.cls * total_cls + self.w.box * total_box
         return {
