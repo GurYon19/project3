@@ -109,7 +109,11 @@ def draw_pil(
 
         name = class_names[int(cls[i])]
         text = f"{name} {c:.2f}"
-        tw, th = draw.textsize(text, font=font)
+
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+
         draw.rectangle([x1, max(0, y1 - th - 4), x1 + tw + 6, y1], fill=color)
         draw.text((x1 + 3, max(0, y1 - th - 2)), text, fill=(0, 0, 0), font=font)
 

@@ -159,49 +159,20 @@ python -m part3.run_inference_batch \
 
 outputs: utputs/part3/infer_run1_test30/*
 
-Todo:
+- Download video to videos folder
+- Remove sound using:
+ffmpeg -i videos/input_video.mp4 -an -vcodec copy videos/input_video_noaudio.mp4
 
-2) Run inference on a handful of images (for qualitative results)
+- Run inference on the video:
 
-After you have mAP, generate visuals:
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.inference \
+  --checkpoint checkpoints/part3_run1/best.pth \
+  --classes-json datasets/part3/classes.json \
+  --image-size 448 \
+  --max-objects 3 \
+  --conf-thresh 0.25 \
+  --topk 3 \
+  --video videos/input_video_noaudio.mp4 \
+  --out-dir outputs/part3/video_run1_thr025
 
-10–20 test images
 
-show success and failure cases
-
-include 2–4 examples in the report
-
-Also, this is a quick sanity check that predictions “look right”.
-
-✅ Do this right after evaluation.
-
-3) External video inference (required deliverable)
-
-Once inference works well, do the external video demo:
-
-short clip with person + car or person + dog
-
-save predicted video to outputs/part3/
-
-✅ Do this after image inference.
-
-4) Only then: address class imbalance / augmentation (as an improvement experiment)
-
-Right now you have a strong baseline. Don’t change training until you have baseline metrics.
-
-After evaluation you’ll know:
-
-if car/dog AP is low (likely) → imbalance is hurting
-
-if everything is decent → keep it simple
-
-Then pick one improvement (not 5 things), rerun a shorter training, compare:
-
-Recommended single improvement:
-
-balanced sampling or class-weighted CE (cheap and effective)
-OR
-
-horizontal flip + color jitter augmentation (also cheap and safe)
-
-But don’t do this until you have baseline evaluation.

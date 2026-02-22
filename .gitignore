@@ -6,3 +6,6 @@ old datasets/
 checkpoints/
 logs/
 results/
+__pycache__/
+videos/
+part3/__pycache__/
