@@ -129,7 +129,7 @@ def match_small_k_bruteforce(cost: torch.Tensor, valid_mask: torch.Tensor) -> Tu
         total = 0.0
         for pi, gi in zip(pred_subset, gt_inds):
             total = total + cost[pi, gi]
-        total_val = float(total)
+        total_val = float(total.detach())
         if total_val < best_cost:
             best_cost = total_val
             best_perm = pred_subset

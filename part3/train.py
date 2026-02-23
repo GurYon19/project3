@@ -76,6 +76,19 @@ def compute_class_weights(counts, bg_weight=0.25):
     w_full[C] = bg_weight
     return torch.tensor(w_full, dtype=torch.float32)
 
+from collections import Counter
+
+def count_objects_per_class(ds: Part3VOCDataset) -> list[int]:
+    """
+    Count GT objects per class index (0..num_classes-1) from the dataset index JSON.
+    Assumes ds.items entries contain 'labels' as class indices (no background).
+    """
+    c = Counter()
+    for item in ds.items:
+        for y in item["labels"]:
+            c[int(y)] += 1
+    num_classes = len(ds.classes)
+    return [c.get(i, 0) for i in range(num_classes)]
 
 def main():
     args = parse_args()
@@ -140,10 +153,11 @@ def main():
     ).to(device)
 
     # Using counts you measured:
-    # person=8005, car=867, dog=1002
-    class_w = compute_class_weights([8005, 867, 1002], bg_weight=0.25)
-    print(f"[WEIGHTS] class_w={class_w.tolist()} (person,car,dog,bg)")
-
+    counts = count_objects_per_class(train_ds)
+    class_w = compute_class_weights(counts, bg_weight=0.25)
+    print(f"[WEIGHTS] counts={counts} classes={train_ds.classes} bg_weight=0.25")
+    print(f"[WEIGHTS] class_w={class_w.tolist()} (classes + bg)")
+    
     print(f"[LOSS] focal={args.use_focal} gamma={args.focal_gamma} class_weights=None")
 
     criterion = FixedSlotLoss(
