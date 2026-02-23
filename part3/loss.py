@@ -98,6 +98,47 @@ def ciou_loss_xyxy(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return 1.0 - ciou.clamp(min=-1.0, max=1.0)
 
 
+def match_small_k_bruteforce(cost: torch.Tensor, valid_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Exact matching for small K using brute-force permutations.
+    Works well for K up to ~6.
+
+    cost: [K,K] cost matrix (pred_i vs gt_j)
+    valid_mask: [K] bool, True for real GT objects, False for padded GT slots.
+               We'll only match to the first N valid GT slots.
+
+    Returns:
+      pred_idx: [N] indices in [0..K-1]
+      gt_idx:   [N] indices in [0..N-1]
+    """
+    K = cost.shape[0]
+    assert cost.shape == (K, K)
+
+    N = int(valid_mask.long().sum().item())
+    if N == 0:
+        return (
+            torch.empty((0,), dtype=torch.long, device=cost.device),
+            torch.empty((0,), dtype=torch.long, device=cost.device),
+        )
+
+    gt_inds = list(range(N))
+    best_cost = float("inf")
+    best_perm = None
+
+    for pred_subset in itertools.permutations(range(K), N):
+        total = 0.0
+        for pi, gi in zip(pred_subset, gt_inds):
+            total = total + cost[pi, gi]
+        total_val = float(total)
+        if total_val < best_cost:
+            best_cost = total_val
+            best_perm = pred_subset
+
+    pred_idx = torch.tensor(best_perm, dtype=torch.long, device=cost.device)
+    gt_idx = torch.tensor(gt_inds, dtype=torch.long, device=cost.device)
+    return pred_idx, gt_idx
+
+
 def hungarian_match_k3(cost: torch.Tensor, valid_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Very small matching for fixed K=3 using brute-force permutations.
@@ -216,7 +257,7 @@ class FixedSlotLoss(nn.Module):
                 cost_full = torch.full((self.K, self.K), fill_value=10.0, device=device, dtype=cost.dtype)
                 cost_full[:, :N] = cost
 
-                pred_idx, gt_idx = hungarian_match_k3(cost_full, valid_mask=m)
+                pred_idx, gt_idx = match_small_k_bruteforce(cost_full, valid_mask=m)
 
                 # Assign GT labels to matched prediction slots
                 assigned_labels[pred_idx] = tl_valid[gt_idx]
