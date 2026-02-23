@@ -1,0 +1,85 @@
+{
+  "config": {
+    "classes": [
+      "person",
+      "car",
+      "dog",
+      "cat"
+    ],
+    "max_objects": 3
+  },
+  "splits": {
+    "train": {
+      "split": "train",
+      "chosen_classes": [
+        "person",
+        "car",
+        "dog",
+        "cat"
+      ],
+      "max_objects": 3,
+      "raw_images": 87582,
+      "raw_annotations": 637352,
+      "chosen_class_annotations_raw": 234374,
+      "kept_images": 34157,
+      "kept_annotations": 53175,
+      "dropped_images_zero_objects": 33590,
+      "dropped_images_over_max_objects": 19835,
+      "objects_per_image_hist": {
+        "1": 20026,
+        "2": 9244,
+        "3": 4887
+      },
+      "bad_or_skipped_bboxes": 0,
+      "copy_mode": "copy"
+    },
+    "valid": {
+      "split": "valid",
+      "chosen_classes": [
+        "person",
+        "car",
+        "dog",
+        "cat"
+      ],
+      "max_objects": 3,
+      "raw_images": 23544,
+      "raw_annotations": 171238,
+      "chosen_class_annotations_raw": 62610,
+      "kept_images": 9287,
+      "kept_annotations": 14527,
+      "dropped_images_zero_objects": 8967,
+      "dropped_images_over_max_objects": 5290,
+      "objects_per_image_hist": {
+        "1": 5424,
+        "2": 2486,
+        "3": 1377
+      },
+      "bad_or_skipped_bboxes": 0,
+      "copy_mode": "copy"
+    },
+    "test": {
+      "split": "test",
+      "chosen_classes": [
+        "person",
+        "car",
+        "dog",
+        "cat"
+      ],
+      "max_objects": 3,
+      "raw_images": 11798,
+      "raw_annotations": 88443,
+      "chosen_class_annotations_raw": 32825,
+      "kept_images": 4545,
+      "kept_annotations": 7122,
+      "dropped_images_zero_objects": 4429,
+      "dropped_images_over_max_objects": 2824,
+      "objects_per_image_hist": {
+        "1": 2662,
+        "2": 1189,
+        "3": 694
+      },
+      "bad_or_skipped_bboxes": 0,
+      "copy_mode": "copy"
+    }
+  }
+}

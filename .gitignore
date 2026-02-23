@@ -7,3 +7,33 @@ input_video_noaudio_pred.mp4
 6989257-hd_1280_720_30fps.mp4
 Big Cats of the World Part II - BENGAL TIGER (Panthera tigris) - The Safari Expert (720p, h264).mp4
 part2_video/
+
+data/raw_coco/
+data/part3/train/images/
+data/part3/valid/images/
+data/part3/test/images/
+
+# Zips / archives
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environments
+.venv/
+env/
+venv/
+
+# Outputs
+outputs/
+logs/
+checkpoints/
+
+# Data
+data/
+datasets/
+
+# OS
+.DS_Store
