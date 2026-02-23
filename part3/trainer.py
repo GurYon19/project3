@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Dict, Optional
 
 import torch
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
+
+import random
 
 
 def _mean_iou_matched(pred_boxes, pred_logits, tgt_boxes, tgt_labels, tgt_mask, bg_id: int) -> torch.Tensor:
@@ -85,6 +88,8 @@ class Trainer:
         background_id: int = 3,
         grad_clip: float = 1.0,
         amp: bool = False,
+        multi_scale: bool = False,
+        ms_sizes: Optional[list[int]] = None,
     ):
         self.model = model
         self.criterion = criterion
@@ -107,6 +112,13 @@ class Trainer:
 
         self.state = TrainState()
 
+        self.multi_scale = bool(multi_scale)
+        self.ms_sizes = ms_sizes or []
+        if self.multi_scale and len(self.ms_sizes) == 0:
+            self.multi_scale = False
+        if self.multi_scale:
+            print(f"[TRAIN] Multi-scale enabled sizes={self.ms_sizes}")
+
     def save(self, name: str):
         path = self.ckpt_dir / name
         obj = {
@@ -125,6 +137,53 @@ class Trainer:
             self.scheduler.load_state_dict(obj["scheduler"])
         self.state = TrainState(**obj.get("state", {}))
 
+    def _apply_multiscale(self, images: torch.Tensor, targets: Dict[str, torch.Tensor]) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """
+        Per-batch multi-scale resizing.
+        images: [B,3,H,W]  (usually square)
+        targets['boxes']: [B,K,4] in pixel coords for the current H,W
+        """
+        if (not self.multi_scale) or (len(self.ms_sizes) == 0):
+            return images, targets
+
+        B, C, H, W = images.shape
+        # Assume square inputs in this project; keep it robust anyway:
+        old_h, old_w = H, W
+
+        new_size = random.choice(self.ms_sizes)
+        if new_size == old_h and new_size == old_w:
+            return images, targets
+
+        # Resize images
+        images = F.interpolate(images, size=(new_size, new_size), mode="bilinear", align_corners=False)
+
+        # Scale boxes
+        boxes = targets["boxes"]
+        scale_x = new_size / float(old_w)
+        scale_y = new_size / float(old_h)
+
+        boxes = boxes.clone()
+        boxes[..., 0] *= scale_x
+        boxes[..., 2] *= scale_x
+        boxes[..., 1] *= scale_y
+        boxes[..., 3] *= scale_y
+
+        # Clamp to new image bounds
+        boxes[..., 0::2] = boxes[..., 0::2].clamp(0, new_size - 1)
+        boxes[..., 1::2] = boxes[..., 1::2].clamp(0, new_size - 1)
+
+        targets = dict(targets)
+        targets["boxes"] = boxes
+
+        # If model uses a stored image_size for scaling outputs, update it
+        if hasattr(self.model, "image_size"):
+            try:
+                self.model.image_size = new_size
+            except Exception:
+                pass
+
+        return images, targets
+
     def train_one_epoch(self, loader, epoch: int):
         self.model.train()
         running = {"loss": 0.0, "loss_cls": 0.0, "loss_box": 0.0}
@@ -137,6 +196,7 @@ class Trainer:
                 "labels": targets["labels"].to(self.device),
                 "mask": targets["mask"].to(self.device),
             }
+            images, targets = self._apply_multiscale(images, targets)
 
             self.optimizer.zero_grad(set_to_none=True)
 

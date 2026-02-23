@@ -10,6 +10,24 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def focal_loss_ce(
+    logits: torch.Tensor,          # [K, C+1]
+    targets: torch.Tensor,         # [K]
+    gamma: float = 2.0,
+    weight: torch.Tensor | None = None,  # [C+1] optional
+) -> torch.Tensor:
+    """
+    Focal loss built on top of cross-entropy:
+      FL = (1 - pt)^gamma * CE
+    Returns mean loss over K.
+    """
+    logp = F.log_softmax(logits, dim=-1)           # [K, C+1]
+    ce = F.nll_loss(logp, targets, weight=weight, reduction="none")  # [K]
+    pt = torch.exp(-ce)                            # [K]
+    fl = ((1.0 - pt) ** gamma) * ce
+    return fl.mean()
+
+
 def box_iou_xyxy(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
     IoU between sets of boxes in xyxy.
@@ -137,13 +155,17 @@ class FixedSlotLoss(nn.Module):
         num_classes: int,
         max_objects: int = 3,
         weights: LossWeights = LossWeights(),
-        class_weights: torch.Tensor | None = None,  # NEW
+        class_weights: torch.Tensor | None = None,
+        use_focal: bool = False,
+        focal_gamma: float = 2.0,
     ):
         super().__init__()
         self.num_classes = num_classes
         self.bg = num_classes
         self.K = max_objects
         self.w = weights
+        self.use_focal = use_focal
+        self.focal_gamma = focal_gamma
 
         if class_weights is not None:
             cw = torch.as_tensor(class_weights, dtype=torch.float32)
@@ -207,7 +229,11 @@ class FixedSlotLoss(nn.Module):
                 total_matched += len(pred_idx)
 
             # Classification loss over all K slots (weighted)
-            cls_l = F.cross_entropy(pl, assigned_labels, weight=self.class_weights, reduction="mean")
+            if self.use_focal:
+                cls_l = focal_loss_ce(pl, assigned_labels, gamma=self.focal_gamma, weight=self.class_weights)
+            else:
+                cls_l = F.cross_entropy(pl, assigned_labels, weight=self.class_weights, reduction="mean")
+
             total_cls = total_cls + cls_l
 
         total_cls = total_cls / B

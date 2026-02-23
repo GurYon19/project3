@@ -11,6 +11,9 @@ from torch.utils.data import Dataset
 from PIL import Image
 from torchvision.transforms import functional as TF
 
+import random
+from torchvision.transforms import ColorJitter, GaussianBlur
+
 
 @dataclass
 class Part3Sample:
@@ -45,6 +48,59 @@ def _resize_boxes_xyxy(
     return torch.stack([x1, y1, x2, y2], dim=1)
 
 
+def _clamp_boxes_xyxy(boxes: torch.Tensor, w: int, h: int) -> torch.Tensor:
+    if boxes.numel() == 0:
+        return boxes
+    boxes = boxes.clone()
+    boxes[:, 0::2] = boxes[:, 0::2].clamp(0, w - 1)
+    boxes[:, 1::2] = boxes[:, 1::2].clamp(0, h - 1)
+    return boxes
+
+
+def _filter_valid_boxes_xyxy(boxes: torch.Tensor, labels: torch.Tensor, min_wh: float = 2.0):
+    if boxes.numel() == 0:
+        return boxes, labels
+    w = (boxes[:, 2] - boxes[:, 0]).clamp(min=0)
+    h = (boxes[:, 3] - boxes[:, 1]).clamp(min=0)
+    keep = (w >= min_wh) & (h >= min_wh)
+    return boxes[keep], labels[keep]
+
+
+def _random_square_crop_params(w: int, h: int, scale_min: float, scale_max: float):
+    """
+    Returns (left, top, crop_size) for a square crop inside WxH.
+    scale is relative to min(w,h).
+    """
+    base = min(w, h)
+    s = random.uniform(scale_min, scale_max)
+    crop = int(round(base * s))
+    crop = max(16, min(crop, base))  # avoid tiny / invalid
+
+    max_left = w - crop
+    max_top = h - crop
+    left = 0 if max_left <= 0 else random.randint(0, max_left)
+    top = 0 if max_top <= 0 else random.randint(0, max_top)
+    return left, top, crop
+
+
+def _crop_boxes_xyxy(boxes: torch.Tensor, left: int, top: int, crop: int) -> torch.Tensor:
+    """
+    Crop boxes by (left, top, crop_size). Output boxes in cropped coords (still xyxy).
+    Boxes are clipped to crop window.
+    """
+    if boxes.numel() == 0:
+        return boxes
+
+    x1 = boxes[:, 0] - left
+    y1 = boxes[:, 1] - top
+    x2 = boxes[:, 2] - left
+    y2 = boxes[:, 3] - top
+
+    boxes2 = torch.stack([x1, y1, x2, y2], dim=1)
+    boxes2 = _clamp_boxes_xyxy(boxes2, crop, crop)
+    return boxes2
+
+
 class Part3VOCDataset(Dataset):
     """
     Reads datasets/part3/{train,val,test}.json produced by tools/filter_voc_for_part3.py
@@ -64,11 +120,29 @@ class Part3VOCDataset(Dataset):
         classes_json: str | Path,
         image_size: int = 448,
         max_objects: int = 3,
+        augment: bool = False,
+        aug_scale_min: float = 0.5,
+        aug_scale_max: float = 1.0,
+        aug_flip_p: float = 0.5,
+        aug_jitter_p: float = 0.8,
+        aug_blur_p: float = 0.15,
     ):
         self.index_json = Path(index_json)
         self.classes_json = Path(classes_json)
         self.image_size = int(image_size)
         self.max_objects = int(max_objects)
+
+        self.augment = bool(augment)
+        self.aug_scale_min = float(aug_scale_min)
+        self.aug_scale_max = float(aug_scale_max)
+        self.aug_flip_p = float(aug_flip_p)
+        self.aug_jitter_p = float(aug_jitter_p)
+        self.aug_blur_p = float(aug_blur_p)
+
+        # Define transforms once
+        self._jitter = ColorJitter(brightness=0.25, contrast=0.25, saturation=0.15, hue=0.02)
+        self._blur = GaussianBlur(kernel_size=3, sigma=(0.1, 1.0))
+
 
         classes_obj = _load_json(self.classes_json)
         self.classes: List[str] = classes_obj["classes"]
@@ -101,14 +175,50 @@ class Part3VOCDataset(Dataset):
         if s.width > 0 and s.height > 0:
             orig_w, orig_h = s.width, s.height
 
-        # resize image
-        img = img.resize((self.image_size, self.image_size), resample=Image.BILINEAR)
-        x = TF.to_tensor(img)  # [3,H,W] float in [0,1]
-
         boxes = torch.tensor(s.boxes, dtype=torch.float32)   # [N,4] in orig pixels
         labels = torch.tensor(s.labels, dtype=torch.long)    # [N]
 
+        # --- Train-time augmentation (operates in original image coords) ---
+        if self.augment:
+            # 1) Random square crop (scale jitter), retry a few times so we don't crop away all objects
+            for _ in range(5):
+                left, top, crop = _random_square_crop_params(orig_w, orig_h, self.aug_scale_min, self.aug_scale_max)
+                boxes_c = _crop_boxes_xyxy(boxes, left, top, crop)
+                boxes_c, labels_c = _filter_valid_boxes_xyxy(boxes_c, labels, min_wh=2.0)
+                if labels_c.numel() > 0:
+                    # apply crop
+                    img = TF.crop(img, top, left, crop, crop)
+                    boxes, labels = boxes_c, labels_c
+                    orig_w, orig_h = crop, crop
+                    break
+            # if all retries fail, keep original image/boxes
+
+            # 2) Horizontal flip
+            if random.random() < self.aug_flip_p:
+                img = TF.hflip(img)
+                if boxes.numel() > 0:
+                    # x coords flip inside [0, orig_w)
+                    x1 = boxes[:, 0].clone()
+                    x2 = boxes[:, 2].clone()
+                    boxes[:, 0] = (orig_w - 1) - x2
+                    boxes[:, 2] = (orig_w - 1) - x1
+
+            # 3) Color jitter
+            if random.random() < self.aug_jitter_p:
+                img = self._jitter(img)
+
+            # 4) Mild blur (helps with video motion blur)
+            if random.random() < self.aug_blur_p:
+                img = self._blur(img)
+
+        # --- Resize to network input ---
+        img = img.resize((self.image_size, self.image_size), resample=Image.BILINEAR)
+        x = TF.to_tensor(img)  # [3,H,W] float in [0,1]
+
+        # Resize boxes to match final image_size
         boxes = _resize_boxes_xyxy(boxes, orig_w, orig_h, self.image_size, self.image_size)
+        boxes, labels = _filter_valid_boxes_xyxy(boxes, labels, min_wh=2.0)
+
 
         K = self.max_objects
         N = min(labels.numel(), K)

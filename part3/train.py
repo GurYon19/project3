@@ -13,6 +13,8 @@ from part3.loss import FixedSlotLoss, LossWeights
 from part3.trainer import Trainer
 
 
+
+
 def parse_args():
     p = argparse.ArgumentParser("Part 3 training (fixed-slot detector)")
     p.add_argument("--data-dir", type=str, default="datasets/part3")
@@ -24,6 +26,16 @@ def parse_args():
     p.add_argument("--weight-decay", type=float, default=1e-4)
     p.add_argument("--freeze-backbone", action="store_true")
     p.add_argument("--unfreeze-epoch", type=int, default=10)
+    p.add_argument("--use-focal", action="store_true")
+    p.add_argument("--focal-gamma", type=float, default=2.0)
+    p.add_argument("--multi-scale", action="store_true", help="Enable multi-scale training (per-batch resize)")
+    p.add_argument("--ms-sizes", type=str, default="384,448,512", help="Comma-separated sizes, e.g. 384,448,512")
+    p.add_argument("--aug", action="store_true", help="Enable train-time augmentations (Run5)")
+    p.add_argument("--aug-scale-min", type=float, default=0.5)
+    p.add_argument("--aug-scale-max", type=float, default=1.0)
+    p.add_argument("--aug-flip-p", type=float, default=0.5)
+    p.add_argument("--aug-jitter-p", type=float, default=0.8)
+    p.add_argument("--aug-blur-p", type=float, default=0.15)
     p.add_argument("--log-dir", type=str, default="logs/part3")
     p.add_argument("--ckpt-dir", type=str, default="checkpoints/part3")
     p.add_argument("--num-workers", type=int, default=4)
@@ -74,8 +86,23 @@ def main():
     val_json = data_dir / "val.json"
     classes_json = data_dir / "classes.json"
 
-    train_ds = Part3VOCDataset(train_json, classes_json, image_size=args.image_size, max_objects=args.max_objects)
-    val_ds = Part3VOCDataset(val_json, classes_json, image_size=args.image_size, max_objects=args.max_objects)
+    train_ds = Part3VOCDataset(
+        train_json, classes_json,
+        image_size=args.image_size, max_objects=args.max_objects,
+        augment=args.aug,
+        aug_scale_min=args.aug_scale_min,
+        aug_scale_max=args.aug_scale_max,
+        aug_flip_p=args.aug_flip_p,
+        aug_jitter_p=args.aug_jitter_p,
+        aug_blur_p=args.aug_blur_p,
+    )
+
+    # IMPORTANT: no augmentations in val
+    val_ds = Part3VOCDataset(
+        val_json, classes_json,
+        image_size=args.image_size, max_objects=args.max_objects,
+        augment=False,
+    )
 
     num_classes = len(train_ds.classes)
     bg_id = num_classes
@@ -117,15 +144,23 @@ def main():
     class_w = compute_class_weights([8005, 867, 1002], bg_weight=0.25)
     print(f"[WEIGHTS] class_w={class_w.tolist()} (person,car,dog,bg)")
 
+    print(f"[LOSS] focal={args.use_focal} gamma={args.focal_gamma} class_weights=None")
+
     criterion = FixedSlotLoss(
         num_classes=num_classes,
         max_objects=args.max_objects,
         weights=LossWeights(cls=1.0, box=5.0),
-        class_weights=class_w.to(device),
+        class_weights=None,                 # <-- IMPORTANT: Run A isolates focal
+        use_focal=args.use_focal,
+        focal_gamma=args.focal_gamma,
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+
+    ms_sizes = [int(s) for s in args.ms_sizes.split(",") if s.strip()]
+    if not ms_sizes:
+        ms_sizes = [args.image_size]
 
     trainer = Trainer(
         model=model,
@@ -137,7 +172,11 @@ def main():
         ckpt_dir=args.ckpt_dir,
         background_id=bg_id,
         amp=args.amp,
+        multi_scale=args.multi_scale,
+        ms_sizes=ms_sizes,
     )
+    print(f"[MS] enabled={args.multi_scale} sizes={ms_sizes} (train only), val_size={args.image_size}")
+
 
     if args.resume:
         trainer.load(args.resume)
