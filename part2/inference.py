@@ -157,6 +157,13 @@ def run_inference_on_video(model, video_path: str, output_path: str = None):
         writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     
     frame_count = 0
+    alpha = 0.25  # Smoothing factor (20% current, 80% history) for temporal stability
+    history_box = None
+    consecutive_lost_frames = 0
+    MAX_JUMP = 0.15  # Sensitive: object jump beyond 12% is considered lost
+    MIN_SIZE = 0.02  # Sensitive: minimal viable size is 5%
+    MAX_SIZE_CHANGE = 0.4  # Sensitive: box dimensions shouldn't change > 35% in one frame
+
     try:
         while True:
             ret, frame = cap.read()
@@ -168,8 +175,38 @@ def run_inference_on_video(model, video_path: str, output_path: str = None):
             with torch.no_grad():
                 pred_box = model(input_tensor).squeeze(0).cpu().numpy()
             
-            # Draw
-            result = draw_detection(frame, pred_box)
+            # Plausibility check (Fake "Confidence")
+            pred_cx, pred_cy, pred_w, pred_h = pred_box
+            is_plausible = True
+            
+            if history_box is not None:
+                history_cx, history_cy, history_w, history_h = history_box
+                distance = np.sqrt((pred_cx - history_cx)**2 + (pred_cy - history_cy)**2)
+                
+                # Check 1: Did it jump too far?
+                if distance > MAX_JUMP:
+                    is_plausible = False
+                
+                # Check 2: Did it suddenly shrink or grow impossibly?
+                if abs(pred_w - history_w) > MAX_SIZE_CHANGE or abs(pred_h - history_h) > MAX_SIZE_CHANGE:
+                    is_plausible = False
+                
+                # Check 3: Is it impossibly small? (Tiger vanished into a dot)
+                if pred_w < MIN_SIZE or pred_h < MIN_SIZE:
+                    is_plausible = False
+            
+            # Apply Smoothing and Resets
+            if not is_plausible:
+                consecutive_lost_frames += 1
+                result = frame.copy() # Don't draw the rectangle
+            else:
+                if history_box is None or consecutive_lost_frames > 1:
+                    history_box = pred_box # Hard reset location if it re-appears or first frame
+                else:
+                    history_box = (alpha * pred_box) + ((1 - alpha) * history_box)
+                
+                consecutive_lost_frames = 0
+                result = draw_detection(frame.copy(), history_box)
             
             # Add frame counter
             cv2.putText(result, f"Frame: {frame_count}/{total_frames}", (10, 30),
