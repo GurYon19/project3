@@ -100,7 +100,6 @@ class FixedSlotDetector(nn.Module):
         for p in self.backbone.parameters():
             p.requires_grad = True
 
-    @torch.no_grad()
     def _order_and_clamp_xyxy(self, boxes: torch.Tensor) -> torch.Tensor:
         """
         boxes: [B,K,4] raw xyxy in pixels (may be unordered/out-of-range)

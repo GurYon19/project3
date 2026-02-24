@@ -1,3 +1,4 @@
+# part3/train.py
 from __future__ import annotations
 
 import argparse
@@ -44,6 +45,10 @@ def parse_args():
     p.add_argument("--aug-jitter-p", type=float, default=0.8)
     p.add_argument("--aug-blur-p", type=float, default=0.15)
 
+    # class-weight controls
+    p.add_argument("--use-class-weights", action="store_true", help="Enable inverse-frequency class weights")
+    p.add_argument("--bg-weight", type=float, default=0.25, help="Weight for background class (C index)")
+
     p.add_argument("--log-dir", type=str, default="logs/part3")
     p.add_argument("--ckpt-dir", type=str, default="checkpoints/part3")
     p.add_argument("--num-workers", type=int, default=4)
@@ -56,6 +61,7 @@ def parse_args():
 def set_seed(seed: int):
     import random
     import numpy as np
+
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -63,12 +69,48 @@ def set_seed(seed: int):
 
 
 def pick_device():
-    # Prefer MPS if available (your setup), then CUDA, then CPU
     if torch.backends.mps.is_available():
         return torch.device("mps")
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
+
+
+def compute_class_counts_from_index(index_json: Path, num_classes: int) -> list[int]:
+    """
+    Counts labels in the dataset index json (train.json) which stores label ids per image.
+    Returns counts for classes [0..C-1].
+    """
+    import json
+
+    obj = json.loads(index_json.read_text(encoding="utf-8"))
+    counts = [0] * num_classes
+    for it in obj:
+        for lab in it.get("labels", []):
+            if 0 <= int(lab) < num_classes:
+                counts[int(lab)] += 1
+    return counts
+
+
+def compute_class_weights(counts: list[int], bg_weight: float = 0.25) -> torch.Tensor:
+    """
+    Inverse-frequency weights normalized to mean=1 over foreground classes.
+    Adds background weight as last entry.
+    """
+    import numpy as np
+
+    counts = np.array(counts, dtype=np.float64)
+    counts = np.maximum(counts, 1.0)  # avoid div0
+    total = counts.sum()
+    C = len(counts)
+
+    w = total / (C * counts)  # inverse frequency
+    w = w / w.mean()          # normalize so avg fg weight = 1
+
+    w_full = np.zeros(C + 1, dtype=np.float64)
+    w_full[:C] = w
+    w_full[C] = float(bg_weight)
+    return torch.tensor(w_full, dtype=torch.float32)
 
 
 def main():
@@ -93,7 +135,6 @@ def main():
         aug_blur_p=args.aug_blur_p,
     )
 
-    # IMPORTANT: no augmentations in val
     val_ds = Part3VOCDataset(
         val_json,
         classes_json,
@@ -106,7 +147,7 @@ def main():
     bg_id = num_classes
 
     device = pick_device()
-    pin_memory = device.type == "cuda"  # only useful on CUDA
+    pin_memory = device.type == "cuda"
 
     train_loader = DataLoader(
         train_ds,
@@ -127,33 +168,40 @@ def main():
         drop_last=False,
     )
 
-    # Model (MobileNetV3-Large is already inside FixedSlotDetector now)
     model = FixedSlotDetector(
         num_classes=num_classes,
         max_objects=args.max_objects,
         pretrained=True,
         freeze_backbone=args.freeze_backbone,
         image_size=args.image_size,
-        # If your loss uses IoU during training and you see NaNs, flip this True:
-        constrain_boxes_in_train=False,
+        constrain_boxes_in_train=True,  # IoU-based matching needs valid boxes
     ).to(device)
+
+    # ---- class weights (optional) ----
+    class_w = None
+    counts = compute_class_counts_from_index(train_json, num_classes)
+    if args.use_class_weights:
+        class_w = compute_class_weights(counts, bg_weight=args.bg_weight).to(device)
 
     print(f"[DEVICE] {device}")
     print(f"[DATA] train={len(train_ds)} val={len(val_ds)} classes={train_ds.classes} bg_id={bg_id}")
-    print(f"[LOSS] focal={args.use_focal} gamma={args.focal_gamma} class_weights=None")
-    print(f"[MS] enabled={args.multi_scale} sizes={args.ms_sizes} (train only), val_size={args.image_size}")
     print(f"[AUG] enabled={args.aug}")
+    print(f"[MS] enabled={args.multi_scale} sizes={args.ms_sizes} (train only), val_size={args.image_size}")
+    print(f"[COUNTS] {dict(zip(train_ds.classes, counts))}")
+    print(f"[LOSS] focal={args.use_focal} gamma={args.focal_gamma} class_weights={'on' if class_w is not None else 'off'}")
+    if class_w is not None:
+        print(f"[WEIGHTS] {class_w.tolist()} (fg then bg={args.bg_weight})")
 
     criterion = FixedSlotLoss(
         num_classes=num_classes,
         max_objects=args.max_objects,
         weights=LossWeights(cls=1.0, box=5.0),
-        class_weights=None,  # keep None to isolate focal effect
+        class_weights=class_w,  # ✅ now enabled when flag is set
         use_focal=args.use_focal,
         focal_gamma=args.focal_gamma,
+        image_size=args.image_size,
     ).to(device)
 
-    # Optimizer: start with all params (backbone may be frozen so it's fine)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
