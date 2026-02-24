@@ -25,8 +25,8 @@ def train_part2(args):
     # Setup
     config = PART2_CONFIG.copy()
     config['device'] = str(DEVICE)
-    config['log_dir'] = str(Path('logs') / 'part2')
-    config['checkpoint_dir'] = str(Path('checkpoints') / 'part2')
+    config['log_dir'] = args.log_dir if getattr(args, 'log_dir', None) else str(Path('logs') / 'part2')
+    config['checkpoint_dir'] = args.checkpoint_dir if getattr(args, 'checkpoint_dir', None) else str(Path('checkpoints') / 'part2')
     
     if args.epochs:
         config['epochs'] = args.epochs
@@ -163,6 +163,8 @@ if __name__ == "__main__":
     parser.add_argument('--demo', action='store_true', help="Run demo with synthetic data")
     
     parser.add_argument('--resume', type=str, default=None, help="Path to checkpoint to resume from")
+    parser.add_argument('--checkpoint-dir', type=str, default=None, help="Directory to save checkpoints")
+    parser.add_argument('--log-dir', type=str, default=None, help="Directory to save tensorboard logs")
     
     args = parser.parse_args()
     
