@@ -76,19 +76,22 @@ def compute_class_weights(counts, bg_weight=0.25):
     w_full[C] = bg_weight
     return torch.tensor(w_full, dtype=torch.float32)
 
+
+import json
 from collections import Counter
 
-def count_objects_per_class(ds: Part3VOCDataset) -> list[int]:
+def count_objects_per_class_from_index(index_json_path: Path, num_classes: int) -> list[int]:
     """
     Count GT objects per class index (0..num_classes-1) from the dataset index JSON.
-    Assumes ds.items entries contain 'labels' as class indices (no background).
+    Expects each sample dict to contain 'labels' as int indices (no background).
     """
+    data = json.loads(Path(index_json_path).read_text(encoding="utf-8"))
     c = Counter()
-    for item in ds.items:
-        for y in item["labels"]:
+    for item in data:
+        for y in item.get("labels", []):
             c[int(y)] += 1
-    num_classes = len(ds.classes)
     return [c.get(i, 0) for i in range(num_classes)]
+
 
 def main():
     args = parse_args()
@@ -153,7 +156,7 @@ def main():
     ).to(device)
 
     # Using counts you measured:
-    counts = count_objects_per_class(train_ds)
+    counts = count_objects_per_class_from_index(train_json, num_classes)
     class_w = compute_class_weights(counts, bg_weight=0.25)
     print(f"[WEIGHTS] counts={counts} classes={train_ds.classes} bg_weight=0.25")
     print(f"[WEIGHTS] class_w={class_w.tolist()} (classes + bg)")
