@@ -13,7 +13,7 @@ from config import PART2_CONFIG, DEVICE, IMAGE_SIZE
 from models.detector import create_detector
 from data.dataset import SingleObjectDataset, get_dataloader
 from data.transforms import get_transforms
-from .trainer import create_trainer
+from part2.trainer import create_trainer
 
 
 def train_part2(args):
@@ -77,10 +77,7 @@ def train_part2(args):
     
     # Model
     print(f"\nCreating model...")
-    model = create_detector(phase=2, config={
-        'pretrained': True,
-        'freeze_backbone': config['freeze_backbone']
-    })
+    model = create_detector(phase=2, config=config)
     
     params = model.count_parameters()
     print(f"  Total parameters: {params['total']:,}")

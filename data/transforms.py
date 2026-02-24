@@ -111,8 +111,11 @@ def get_transforms(is_training: bool = True, image_size: int = 448) -> Detection
     return DetectionTransform(
         image_size=image_size,
         is_training=is_training,
-        h_flip_prob=0.0,
-        color_jitter=False
+        # Justification: Tigers are horizontally symmetric for detection purposes, 
+        # and this prevents overfitting to specific object orientations. Bounding boxes are mirrored correctly.
+        h_flip_prob=0.5 if is_training else 0.0,
+        # Justification: Tigers appear in various lighting conditions (jungle, zoo, sunlight, shade).
+        color_jitter=True if is_training else False
     )
 
 

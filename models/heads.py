@@ -16,27 +16,27 @@ class SingleObjectHead(nn.Module):
     
     Bounding Box Format: (x_center, y_center, width, height)
     """
-    
-    def __init__(self, in_features: int = 576):
+    def __init__(self, in_features: int = 1024):
         super().__init__()
         
-        # Only using basic PyTorch building blocks as required
+        # Senior CV Review fixes:
+        # 1. Linear (bias=False) -> BN -> ReLU
+        # 2. Removed final Sigmoid because we use Smooth L1 loss which doesn't saturate
         self.net = nn.Sequential(
-            nn.Linear(in_features, 512),
-            nn.ReLU(),
+            nn.Linear(in_features, 512, bias=False),
             nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
             nn.Dropout(0.3),
             
-            nn.Linear(512, 256),
-            nn.ReLU(),
+            nn.Linear(512, 256, bias=False),
             nn.BatchNorm1d(256),
+            nn.ReLU(inplace=True),
             nn.Dropout(0.2),
             
             nn.Linear(256, 128),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             
-            nn.Linear(128, 4),
-            nn.Sigmoid()  # Constrains output to [0, 1]
+            nn.Linear(128, 4)  # No Sigmoid, will clamp at inference in wrapper
         )
         
         self._init_weights()
@@ -44,7 +44,8 @@ class SingleObjectHead(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
+                # Senior CV Review fix: Kaiming He Init for ReLU
+                nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
     

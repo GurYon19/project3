@@ -11,27 +11,35 @@ import requests
 
 class MobileNetV3Backbone(nn.Module):
     """
-    MobileNetV3-Small backbone for feature extraction.
+    MobileNetV3 backbone for feature extraction.
     
     Extracts features from the network before the classification head.
-    Output channels: 576 (from the last convolutional layer)
+    Small output channels: 576 
+    Large output channels: 960
     """
     
-    def __init__(self, pretrained: bool = True, freeze: bool = True):
+    def __init__(self, pretrained: bool = True, freeze: bool = True, model_name: str = 'small'):
         super().__init__()
+        self.model_name = model_name.lower()
         
-        # Load pretrained MobileNetV3-Small
-        if pretrained:
-            weights = models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
-            self.model = models.mobilenet_v3_small(weights=weights)
-        else:
-            self.model = models.mobilenet_v3_small(weights=None)
+        # Load pretrained MobileNetV3
+        if self.model_name == 'large':
+            if pretrained:
+                weights = models.MobileNet_V3_Large_Weights.IMAGENET1K_V1
+                self.model = models.mobilenet_v3_large(weights=weights)
+            else:
+                self.model = models.mobilenet_v3_large(weights=None)
+            self.out_channels = 960
+        else: # small
+            if pretrained:
+                weights = models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
+                self.model = models.mobilenet_v3_small(weights=weights)
+            else:
+                self.model = models.mobilenet_v3_small(weights=None)
+            self.out_channels = 576
         
         # Extract feature extractor (everything except classifier)
         self.features = self.model.features
-        
-        # Output channels from last conv layer
-        self.out_channels = 576
         
         if freeze:
             self.freeze()
@@ -81,18 +89,19 @@ class MobileNetV3Backbone(nn.Module):
         }
 
 
-def get_backbone(pretrained: bool = True, freeze: bool = True) -> MobileNetV3Backbone:
+def get_backbone(pretrained: bool = True, freeze: bool = True, model_name: str = 'small') -> MobileNetV3Backbone:
     """
     Factory function to create MobileNetV3 backbone.
     
     Args:
         pretrained: Whether to use ImageNet pretrained weights
         freeze: Whether to freeze backbone initially
+        model_name: 'small' or 'large'
         
     Returns:
         MobileNetV3Backbone instance
     """
-    return MobileNetV3Backbone(pretrained=pretrained, freeze=freeze)
+    return MobileNetV3Backbone(pretrained=pretrained, freeze=freeze, model_name=model_name)
 
 
 def get_classification_model(pretrained: bool = True) -> nn.Module:
