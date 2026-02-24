@@ -29,7 +29,7 @@ IMAGE_SIZE = 448  # Increased for maximum detail
 PART2_CONFIG = {
     "num_classes": 1,
     "batch_size": 64,
-    "epochs": 50,
+    "epochs": 90,
     "learning_rate": 2e-3,  # Increased LR
     "coord_weight": 2.0,    # Light L1 penalty for center drift
     "weight_decay": 1e-4,
