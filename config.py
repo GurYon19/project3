@@ -14,34 +14,51 @@ OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 for dir_path in [DATA_DIR, CHECKPOINTS_DIR, LOGS_DIR, OUTPUTS_DIR]:
     dir_path.mkdir(parents=True, exist_ok=True)
 
-# Model
-BACKBONE = "mobilenet_v3_small"
-BACKBONE_OUT_FEATURES = 576
+# -------------------------
+# Model (GLOBAL DEFAULTS)
+# -------------------------
+# Switch to MobileNetV3-Large
+BACKBONE = "mobilenet_v3_large"
+BACKBONE_OUT_FEATURES = 960
 PRETRAINED = True
-IMAGE_SIZE = 448  # Increased for maximum detail
 
-# Part 2 Config - Pure DIoU, Head-Only Training
+# Input resolution
+IMAGE_SIZE = 448
+
+# Optional "neck" bottleneck for detection heads
+# (prevents parameter blow-up when backbone is large)
+NECK_CHANNELS = 256
+
+# Part 2 Config - (keep if you still want it around)
 PART2_CONFIG = {
     "num_classes": 1,
     "batch_size": 64,
     "epochs": 200,
-    "learning_rate": 2e-3,  # Increased LR
-    "coord_weight": 2.0,    # Light L1 penalty for center drift
+    "learning_rate": 2e-3,
+    "coord_weight": 2.0,
     "weight_decay": 1e-4,
-    "freeze_backbone": True,  # Keep backbone frozen initially
-    "unfreeze_epoch": 5,  # Unfreeze top layers at epoch 5
+    "freeze_backbone": True,
+    "unfreeze_epoch": 5,
 }
 
 # Part 3 Config
 PART3_CONFIG = {
-    "num_classes": 20,
-    "max_objects": 3,
+    "num_classes": 20,      # VOC has 20 classes (plus background handled internally)
+    "max_objects": 3,       # fixed capacity K
     "batch_size": 16,
     "epochs": 100,
     "learning_rate": 1e-3,
     "weight_decay": 1e-4,
     "freeze_backbone": True,
     "unfreeze_epoch": 30,
+
+    # model dims
+    "backbone": BACKBONE,
+    "backbone_out_features": BACKBONE_OUT_FEATURES,
+    "neck_channels": NECK_CHANNELS,
+    "image_size": IMAGE_SIZE,
+
+    # loss weights (your existing plan)
     "lambda_box": 5.0,
     "lambda_cls": 1.0,
     "lambda_obj": 1.0,

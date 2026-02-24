@@ -1,133 +1,147 @@
 """
-Backbone model loader for MobileNetV3-Small.
+Backbone model loader for MobileNetV3 (Small/Large).
 Handles feature extraction and pretrained weight loading.
 """
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Optional, List
+
 import torch
 import torch.nn as nn
 from torchvision import models
-from typing import Optional
 import requests
+
+
+@dataclass(frozen=True)
+class BackboneSpec:
+    name: str
+    out_channels: int
+
+
+BACKBONE_SPECS = {
+    "mobilenet_v3_small": BackboneSpec("mobilenet_v3_small", out_channels=576),
+    "mobilenet_v3_large": BackboneSpec("mobilenet_v3_large", out_channels=960),
+}
 
 
 class MobileNetV3Backbone(nn.Module):
     """
-    MobileNetV3-Small backbone for feature extraction.
-    
-    Extracts features from the network before the classification head.
-    Output channels: 576 (from the last convolutional layer)
+    MobileNetV3 backbone for feature extraction.
+
+    - Returns feature maps from `model.features`
+    - Supports small/large variants
+    - `out_channels` matches the last feature stage:
+        small: 576
+        large: 960
     """
-    
-    def __init__(self, pretrained: bool = True, freeze: bool = True):
+
+    def __init__(
+        self,
+        variant: str = "mobilenet_v3_large",
+        pretrained: bool = True,
+        freeze: bool = True,
+    ):
         super().__init__()
-        
-        # Load pretrained MobileNetV3-Small
-        if pretrained:
-            weights = models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
-            self.model = models.mobilenet_v3_small(weights=weights)
-        else:
-            self.model = models.mobilenet_v3_small(weights=None)
-        
-        # Extract feature extractor (everything except classifier)
-        self.features = self.model.features
-        
-        # Output channels from last conv layer
-        self.out_channels = 576
-        
+        if variant not in BACKBONE_SPECS:
+            raise ValueError(
+                f"Unknown variant '{variant}'. Choose from {list(BACKBONE_SPECS.keys())}"
+            )
+
+        spec = BACKBONE_SPECS[variant]
+        self.variant = spec.name
+        self.out_channels = spec.out_channels
+
+        # Load torchvision model
+        if spec.name == "mobilenet_v3_small":
+            if pretrained:
+                weights = models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
+                model = models.mobilenet_v3_small(weights=weights)
+            else:
+                model = models.mobilenet_v3_small(weights=None)
+        else:  # mobilenet_v3_large
+            if pretrained:
+                weights = models.MobileNet_V3_Large_Weights.IMAGENET1K_V1
+                model = models.mobilenet_v3_large(weights=weights)
+            else:
+                model = models.mobilenet_v3_large(weights=None)
+
+        self.model = model
+        self.features = model.features  # nn.Sequential
+
         if freeze:
             self.freeze()
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Extract features from input images.
-        
         Args:
-            x: Input tensor (B, 3, H, W)
-            
+            x: [B, 3, H, W]
         Returns:
-            Feature maps (B, 576, H/32, W/32)
+            feats: [B, out_channels, H/32, W/32] (approx; depends on input size)
         """
         return self.features(x)
-    
+
     def freeze(self):
         """Freeze all backbone parameters."""
-        for param in self.features.parameters():
-            param.requires_grad = False
-    
+        for p in self.features.parameters():
+            p.requires_grad = False
+
     def unfreeze(self, num_layers: Optional[int] = None):
         """
         Unfreeze backbone parameters for fine-tuning.
-        
-        Args:
-            num_layers: If specified, only unfreeze last N layers
+        If num_layers is provided, only the last N feature blocks are unfrozen.
         """
         if num_layers is None:
-            # Unfreeze all
-            for param in self.features.parameters():
-                param.requires_grad = True
-        else:
-            # Unfreeze last N layers
-            layers = list(self.features.children())
-            for layer in layers[-num_layers:]:
-                for param in layer.parameters():
-                    param.requires_grad = True
-    
+            for p in self.features.parameters():
+                p.requires_grad = True
+            return
+
+        layers: List[nn.Module] = list(self.features.children())
+        for layer in layers[-num_layers:]:
+            for p in layer.parameters():
+                p.requires_grad = True
+
     def count_parameters(self) -> dict:
-        """Count total and trainable parameters."""
         total = sum(p.numel() for p in self.parameters())
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        return {
-            'total': total,
-            'trainable': trainable
-        }
+        return {"total": total, "trainable": trainable}
 
 
-def get_backbone(pretrained: bool = True, freeze: bool = True) -> MobileNetV3Backbone:
-    """
-    Factory function to create MobileNetV3 backbone.
-    
-    Args:
-        pretrained: Whether to use ImageNet pretrained weights
-        freeze: Whether to freeze backbone initially
-        
-    Returns:
-        MobileNetV3Backbone instance
-    """
-    return MobileNetV3Backbone(pretrained=pretrained, freeze=freeze)
+def get_backbone(
+    variant: str = "mobilenet_v3_large",
+    pretrained: bool = True,
+    freeze: bool = True,
+) -> MobileNetV3Backbone:
+    return MobileNetV3Backbone(variant=variant, pretrained=pretrained, freeze=freeze)
 
 
-def get_classification_model(pretrained: bool = True) -> nn.Module:
+def get_classification_model(variant: str = "mobilenet_v3_large", pretrained: bool = True) -> nn.Module:
     """
-    Get the full MobileNetV3-Small classification model for Part 1.
-    
-    Args:
-        pretrained: Whether to use ImageNet pretrained weights
-        
-    Returns:
-        Complete MobileNetV3-Small model with classifier
+    Get the full MobileNetV3 classification model (Part 1 usage).
     """
-    if pretrained:
-        weights = models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
-        model = models.mobilenet_v3_small(weights=weights)
-    else:
-        model = models.mobilenet_v3_small(weights=None)
-    
-    return model
+    if variant == "mobilenet_v3_small":
+        if pretrained:
+            weights = models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
+            return models.mobilenet_v3_small(weights=weights)
+        return models.mobilenet_v3_small(weights=None)
+
+    if variant == "mobilenet_v3_large":
+        if pretrained:
+            weights = models.MobileNet_V3_Large_Weights.IMAGENET1K_V1
+            return models.mobilenet_v3_large(weights=weights)
+        return models.mobilenet_v3_large(weights=None)
+
+    raise ValueError(f"Unknown variant '{variant}'")
 
 
 def get_imagenet_labels() -> list:
     """
-    Download and return ImageNet class labels.
-    
-    Returns:
-        List of 1000 ImageNet class names
+    Download and return ImageNet class labels (1000).
     """
     url = "https://raw.githubusercontent.com/anishathalye/imagenet-simple-labels/master/imagenet-simple-labels.json"
-    
     try:
         import json
-        response = requests.get(url, timeout=10)
-        labels = json.loads(response.text)
-        return labels
-    except:
-        # Fallback: return generic labels
+        r = requests.get(url, timeout=10)
+        return json.loads(r.text)
+    except Exception:
         return [f"class_{i}" for i in range(1000)]
