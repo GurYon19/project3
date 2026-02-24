@@ -9,3 +9,8 @@ results/
 __pycache__/
 videos/
 part3/__pycache__/
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
