@@ -9,3 +9,38 @@ results/
 __pycache__/
 videos/
 part3/__pycache__/
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# =========================
+# Datasets
+# =========================
+datasets/
+datasets.zip
+dataset.zip
+old datasets/
+
+# =========================
+# Training Artifacts
+# =========================
+checkpoints/
+logs/
+outputs/
+results/
+videos/
+
+# =========================
+# OS / Mac
+# =========================
+.DS_Store
+
+# =========================
+# Part3 cache explicitly
+# =========================
+part3/__pycache__/
