@@ -175,4 +175,14 @@ KMP_DUPLICATE_LIB_OK=TRUE python -m part3.inference \
   --video videos/input_video_noaudio.mp4 \
   --out-dir outputs/part3/video_run1_thr025
 
+- Run on k9 video:
 
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.inference \
+  --checkpoint checkpoints/part3_run1/best.pth \
+  --classes-json datasets/part3/classes.json \
+  --image-size 448 \
+  --max-objects 3 \
+  --conf-thresh 0.25 \
+  --topk 3 \
+  --video videos/k9_video_input_448_letterbox_noaudio.mp4 \
+  --out-dir outputs/part3/k9_video_run1_thr025
