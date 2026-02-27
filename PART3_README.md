@@ -1,31 +1,28 @@
 - Filter dataset:
 
-python tools/filter_voc_for_part3.py \
-  --voc-root datasets/pascal_voc \
+python tools/build_voc_part3_k3_relaxed.py \
+  --voc-root "/Users/yehudafrist/RUNI/computer_vision/project3/datasets/pascal_voc" \
+  --out-dir datasets/part3_voc_k3_relaxed \
   --classes person car dog \
-  --max-objects 3
+  --max-objects 3 \
+  --selection-strategy prefer_then_area \
+  --seed 42
 
-  output: /Users/yehudafrist/RUNI/computer_vision/project3/datasets/part3/*
+  output: /Users/yehudafrist/RUNI/computer_vision/project3/datasets/part3_voc_k3_relaxed/*
 
 - Confirm model.py works:
 
-python -c "import torch; from part3.model import FixedSlotDetector; m=FixedSlotDetector(); x=torch.randn(2,3,448,448); y=m(x); print(y['boxes'].shape, y['logits'].shape)"
-
-  output: torch.Size([2, 3, 4]) torch.Size([2, 3, 4])
+  output: 
 
 - Confirm dataset.py:
 
-python -c "from part3.dataset import Part3VOCDataset, collate_part3; from torch.utils.data import DataLoader; ds=Part3VOCDataset('datasets/part3/train.json','datasets/part3/classes.json'); dl=DataLoader(ds,batch_size=2,collate_fn=collate_part3); x,t=next(iter(dl)); print(x.shape, t['boxes'].shape, t['labels'].shape, t['mask'].shape, t['labels'].max().item())"
+python -c "from part3.dataset import Part3VOCDataset, collate_part3; d=Part3VOCDataset('datasets/part3_voc_k3_relaxed/train.json','datasets/part3_voc_k3_relaxed/classes.json',augment=True); x,t=d[0]; print(x.shape,t['boxes'].shape,t['labels'].shape,t['mask'])"
 
-  output: torch.Size([2, 3, 448, 448]) torch.Size([2, 3, 4]) torch.Size([2, 3]) torch.Size([2, 3]) 3
+  output: torch.Size([3, 448, 448]) torch.Size([3, 4]) torch.Size([3]) tensor([ True, False, False])
 
 - Sanity check for loss.py:
 
-python -c "import torch; from part3.model import FixedSlotDetector; from part3.loss import FixedSlotLoss; \
-m=FixedSlotDetector(); crit=FixedSlotLoss(num_classes=3); \
-x=torch.randn(2,3,448,448); out=m(x); \
-t={'boxes':torch.zeros(2,3,4), 'labels':torch.full((2,3),3,dtype=torch.long), 'mask':torch.zeros(2,3,dtype=torch.bool)}; \
-print(crit(out,t).keys())"
+python -c "import torch; from part3.loss import FixedSlotLoss; L=FixedSlotLoss(4,bg_id=3); out={'boxes':torch.rand(2,3,4)*448,'logits':torch.randn(2,3,4)}; tgt={'boxes':torch.rand(2,3,4)*448,'labels':torch.randint(0,4,(2,3)),'mask':torch.tensor([[1,0,0],[1,1,0]]).bool()}; print(L(out,tgt).keys())"
 
   output: dict_keys(['loss', 'loss_cls', 'loss_box'])
 

@@ -1,4 +1,3 @@
-# part3/loss.py
 from __future__ import annotations
 
 import itertools
@@ -11,28 +10,19 @@ import torch.nn.functional as F
 
 
 def focal_loss_ce(
-    logits: torch.Tensor,          # [K, C+1]
-    targets: torch.Tensor,         # [K]
+    logits: torch.Tensor,                # [K, C]
+    targets: torch.Tensor,               # [K]
     gamma: float = 2.0,
-    weight: torch.Tensor | None = None,  # [C+1] optional
+    weight: torch.Tensor | None = None,  # [C]
 ) -> torch.Tensor:
-    """
-    Focal loss built on top of cross-entropy:
-      FL = (1 - pt)^gamma * CE
-    Returns mean loss over K.
-    """
-    logp = F.log_softmax(logits, dim=-1)           # [K, C+1]
-    ce = F.nll_loss(logp, targets, weight=weight, reduction="none")  # [K]
-    pt = torch.exp(-ce)                            # [K]
+    logp = F.log_softmax(logits, dim=-1)
+    ce = F.nll_loss(logp, targets, weight=weight, reduction="none")
+    pt = torch.exp(-ce)
     fl = ((1.0 - pt) ** gamma) * ce
     return fl.mean()
 
 
 def box_iou_xyxy(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """
-    IoU between sets of boxes in xyxy.
-    a: [N,4], b: [M,4] => [N,M]
-    """
     if a.numel() == 0 or b.numel() == 0:
         return torch.zeros((a.shape[0], b.shape[0]), device=a.device, dtype=a.dtype)
 
@@ -56,35 +46,25 @@ def box_iou_xyxy(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 def ciou_loss_xyxy(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """
-    CIoU loss for matched pairs of boxes.
-    pred:   [N,4]
-    target: [N,4]
-    returns: [N]
-    """
-    # IoU
-    iou = torch.diag(box_iou_xyxy(pred, target))  # [N]
+    # IoU diagonal
+    iou = torch.diag(box_iou_xyxy(pred, target))
 
     px1, py1, px2, py2 = pred[:, 0], pred[:, 1], pred[:, 2], pred[:, 3]
     tx1, ty1, tx2, ty2 = target[:, 0], target[:, 1], target[:, 2], target[:, 3]
 
-    # centers
     pcx = (px1 + px2) / 2.0
     pcy = (py1 + py2) / 2.0
     tcx = (tx1 + tx2) / 2.0
     tcy = (ty1 + ty2) / 2.0
 
-    # squared center distance
     rho2 = (pcx - tcx) ** 2 + (pcy - tcy) ** 2
 
-    # smallest enclosing box diagonal squared
     cx1 = torch.minimum(px1, tx1)
     cy1 = torch.minimum(py1, ty1)
     cx2 = torch.maximum(px2, tx2)
     cy2 = torch.maximum(py2, ty2)
     c2 = (cx2 - cx1) ** 2 + (cy2 - cy1) ** 2 + 1e-7
 
-    # aspect ratio term
     pw = (px2 - px1).clamp(min=1e-7)
     ph = (py2 - py1).clamp(min=1e-7)
     tw = (tx2 - tx1).clamp(min=1e-7)
@@ -98,23 +78,14 @@ def ciou_loss_xyxy(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return 1.0 - ciou.clamp(min=-1.0, max=1.0)
 
 
-def match_small_k_bruteforce(cost: torch.Tensor, valid_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def match_small_k_bruteforce(cost: torch.Tensor, n_valid_gt: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Exact matching for small K using brute-force permutations.
-    Works well for K up to ~6.
-
-    cost: [K,K] cost matrix (pred_i vs gt_j)
-    valid_mask: [K] bool, True for real GT objects, False for padded GT slots.
-               We'll only match to the first N valid GT slots.
-
-    Returns:
-      pred_idx: [N] indices in [0..K-1]
-      gt_idx:   [N] indices in [0..N-1]
+    Exact matching for small K by brute-force permutations.
+    cost: [K,K] but only first n_valid_gt columns are real GT.
+    returns pred_idx, gt_idx (both length n_valid_gt)
     """
     K = cost.shape[0]
-    assert cost.shape == (K, K)
-
-    N = int(valid_mask.long().sum().item())
+    N = int(n_valid_gt)
     if N == 0:
         return (
             torch.empty((0,), dtype=torch.long, device=cost.device),
@@ -139,44 +110,6 @@ def match_small_k_bruteforce(cost: torch.Tensor, valid_mask: torch.Tensor) -> Tu
     return pred_idx, gt_idx
 
 
-def hungarian_match_k3(cost: torch.Tensor, valid_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Very small matching for fixed K=3 using brute-force permutations.
-
-    cost: [K,K] cost matrix (pred_i vs gt_j)
-    valid_mask: [K] bool, True for real GT objects, False for padded GT slots.
-               We'll only match to the first N valid GT slots.
-
-    Returns:
-      pred_idx: [N] indices in [0..K-1]
-      gt_idx:   [N] indices in [0..N-1]
-    """
-    K = cost.shape[0]
-    assert cost.shape == (K, K)
-
-    # Determine N valid GT
-    N = int(valid_mask.long().sum().item())
-    if N == 0:
-        return torch.empty((0,), dtype=torch.long, device=cost.device), torch.empty((0,), dtype=torch.long, device=cost.device)
-
-    gt_inds = list(range(N))
-    best_cost = None
-    best_perm = None
-
-    # Choose N predictions out of K, and assign them to N GT in some order.
-    for pred_subset in itertools.permutations(range(K), N):
-        total = 0.0
-        for pi, gi in zip(pred_subset, gt_inds):
-            total = total + cost[pi, gi]
-        if best_cost is None or total < best_cost:
-            best_cost = total
-            best_perm = pred_subset
-
-    pred_idx = torch.tensor(best_perm, dtype=torch.long, device=cost.device)
-    gt_idx = torch.tensor(gt_inds, dtype=torch.long, device=cost.device)
-    return pred_idx, gt_idx
-
-
 @dataclass
 class LossWeights:
     cls: float = 1.0
@@ -185,39 +118,53 @@ class LossWeights:
 
 class FixedSlotLoss(nn.Module):
     """
-    Loss for fixed-slot detection (K=3):
-      - Hungarian matching (brute-force for K=3)
-      - Classification loss (CE) over C+1 classes (incl background), optionally class-weighted
-      - CIoU loss for matched boxes
+    Fixed-slot detection loss (K=3):
+
+    Inputs:
+      outputs:
+        boxes:  [B,K,4]  xyxy (pixels in resized image)
+        logits: [B,K,C]  C includes background class
+      targets:
+        boxes:  [B,K,4]
+        labels: [B,K]
+        mask:   [B,K]  True for real objects (not padded)
+
+    Steps:
+      1) For each image, match predictions to GT (only mask=True) by brute-force Hungarian
+      2) Box CIoU loss for matched pairs
+      3) Classification loss on all K slots using assigned labels (unmatched -> background)
     """
 
     def __init__(
         self,
-        num_classes: int,
+        num_classes_total: int,
+        bg_id: int,
         max_objects: int = 3,
         weights: LossWeights = LossWeights(),
-        class_weights: torch.Tensor | None = None,
+        class_weights: torch.Tensor | None = None,  # [C]
         use_focal: bool = False,
         focal_gamma: float = 2.0,
+        match_cls_cost_weight: float = 0.5,
     ):
         super().__init__()
-        self.num_classes = num_classes
-        self.bg = num_classes
-        self.K = max_objects
+        self.C = int(num_classes_total)
+        self.bg_id = int(bg_id)
+        self.K = int(max_objects)
         self.w = weights
-        self.use_focal = use_focal
-        self.focal_gamma = focal_gamma
+        self.use_focal = bool(use_focal)
+        self.focal_gamma = float(focal_gamma)
+        self.match_cls_cost_weight = float(match_cls_cost_weight)
 
         if class_weights is not None:
             cw = torch.as_tensor(class_weights, dtype=torch.float32)
-            assert cw.ndim == 1 and cw.numel() == (num_classes + 1)
+            assert cw.ndim == 1 and cw.numel() == self.C
             self.register_buffer("class_weights", cw)
         else:
             self.class_weights = None
 
     def forward(self, outputs: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         pred_boxes = outputs["boxes"]      # [B,K,4]
-        pred_logits = outputs["logits"]    # [B,K,C+1]
+        pred_logits = outputs["logits"]    # [B,K,C]
 
         tgt_boxes = targets["boxes"]       # [B,K,4]
         tgt_labels = targets["labels"]     # [B,K]
@@ -228,48 +175,45 @@ class FixedSlotLoss(nn.Module):
 
         total_cls = torch.tensor(0.0, device=device)
         total_box = torch.tensor(0.0, device=device)
-        total_matched = 0
+        matched_images = 0
 
         for b in range(B):
             pb = pred_boxes[b]    # [K,4]
-            pl = pred_logits[b]   # [K,C+1]
+            pl = pred_logits[b]   # [K,C]
 
             tb = tgt_boxes[b]     # [K,4]
             tl = tgt_labels[b]    # [K]
             m = tgt_mask[b]       # [K]
 
-            N = int(m.long().sum().item())
+            n_gt = int(m.long().sum().item())
 
-            # Default label for all K predictions is background
-            assigned_labels = torch.full((self.K,), self.bg, dtype=torch.long, device=device)
+            # default: all predictions are background
+            assigned_labels = torch.full((self.K,), self.bg_id, dtype=torch.long, device=device)
 
-            if N > 0:
-                tb_valid = tb[:N]
-                tl_valid = tl[:N]
+            if n_gt > 0:
+                tb_valid = tb[m]     # [N,4]
+                tl_valid = tl[m]     # [N]
 
-                # Cost = (1 - IoU) + class cost
+                # Cost = (1 - IoU) + w * class cost
                 iou = box_iou_xyxy(pb, tb_valid)  # [K,N]
-                logp = F.log_softmax(pl, dim=-1)  # [K,C+1]
+                logp = F.log_softmax(pl, dim=-1)  # [K,C]
                 cls_cost = -logp[:, tl_valid]     # [K,N]
-                cost = (1.0 - iou) + 0.5 * cls_cost
+                cost_kn = (1.0 - iou) + self.match_cls_cost_weight * cls_cost
 
-                # Pad cost to [K,K] for brute-force matcher
-                cost_full = torch.full((self.K, self.K), fill_value=10.0, device=device, dtype=cost.dtype)
-                cost_full[:, :N] = cost
+                # Expand to [K,K] for matcher convenience
+                cost_full = torch.full((self.K, self.K), fill_value=10.0, device=device, dtype=cost_kn.dtype)
+                cost_full[:, :n_gt] = cost_kn
 
-                pred_idx, gt_idx = match_small_k_bruteforce(cost_full, valid_mask=m)
+                pred_idx, gt_idx = match_small_k_bruteforce(cost_full, n_valid_gt=n_gt)
 
-                # Assign GT labels to matched prediction slots
                 assigned_labels[pred_idx] = tl_valid[gt_idx]
 
                 # Box loss for matched pairs
-                matched_pb = pb[pred_idx]
-                matched_tb = tb_valid[gt_idx]
-                box_l = ciou_loss_xyxy(matched_pb, matched_tb).mean()
+                box_l = ciou_loss_xyxy(pb[pred_idx], tb_valid[gt_idx]).mean()
                 total_box = total_box + box_l
-                total_matched += len(pred_idx)
+                matched_images += 1
 
-            # Classification loss over all K slots (weighted)
+            # Classification loss (all K slots)
             if self.use_focal:
                 cls_l = focal_loss_ce(pl, assigned_labels, gamma=self.focal_gamma, weight=self.class_weights)
             else:
@@ -278,7 +222,7 @@ class FixedSlotLoss(nn.Module):
             total_cls = total_cls + cls_l
 
         total_cls = total_cls / B
-        total_box = total_box / B if total_matched > 0 else torch.tensor(0.0, device=device)
+        total_box = (total_box / matched_images) if matched_images > 0 else torch.tensor(0.0, device=device)
 
         loss = self.w.cls * total_cls + self.w.box * total_box
         return {

@@ -1,120 +1,103 @@
-# part3/model.py
 from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict
 
 import torch
 import torch.nn as nn
-from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
+import torch.nn.functional as F
+from torchvision import models
+
+
+@dataclass
+class ModelConfig:
+    image_size: int = 448
+    max_objects: int = 3
+    num_classes_total: int = 4          # includes background
+    bg_id: int = 3
+    backbone: str = "mobilenet_v3_small"
+    pretrained: bool = True
+    dropout: float = 0.1
+    hidden: int = 512
 
 
 class FixedSlotDetector(nn.Module):
     """
-    Fixed-slot detector:
-      - Predicts K slots per image (K=max_objects=3)
-      - Each slot predicts:
-          boxes:  (x1, y1, x2, y2)  -> shape [B, K, 4] in PIXELS on resized image
-          logits: (C+1) classes     -> shape [B, K, C+1] (includes background)
+    Simple fixed-slot detector:
+      - MobileNetV3 backbone -> feature map
+      - global pooling -> vector
+      - MLP predicts K boxes and K class logits
 
-    Key stability feature:
-      - Box outputs are constrained to valid ranges using sigmoid + ordering,
-        which prevents NaNs in IoU/CIoU computations.
+    Output:
+      boxes:  [B,K,4] xyxy in pixel coords (0..S-1)
+      logits: [B,K,C] (C includes background)
     """
 
-    def __init__(
-        self,
-        num_classes: int = 3,        # person, car, dog
-        max_objects: int = 3,        # fixed capacity K
-        pretrained: bool = True,
-        freeze_backbone: bool = True,
-        hidden_dim: int = 256,
-        dropout: float = 0.1,
-        image_size: int = 448,
-    ):
+    def __init__(self, cfg: ModelConfig):
         super().__init__()
-        self.num_classes = num_classes
-        self.max_objects = max_objects
-        self.num_logits = num_classes + 1  # + background
-        self.image_size = int(image_size)
+        self.cfg = cfg
+        self.S = int(cfg.image_size)
+        self.K = int(cfg.max_objects)
+        self.C = int(cfg.num_classes_total)
 
-        # ---- Backbone ----
-        if pretrained:
-            weights = MobileNet_V3_Small_Weights.DEFAULT
-            backbone = mobilenet_v3_small(weights=weights)
+        if cfg.backbone == "mobilenet_v3_small":
+            weights = models.MobileNet_V3_Small_Weights.DEFAULT if cfg.pretrained else None
+            net = models.mobilenet_v3_small(weights=weights)
+            self.backbone = net.features
+            backbone_out = 576
+        elif cfg.backbone == "mobilenet_v3_large":
+            weights = models.MobileNet_V3_Large_Weights.DEFAULT if cfg.pretrained else None
+            net = models.mobilenet_v3_large(weights=weights)
+            self.backbone = net.features
+            backbone_out = 960
         else:
-            backbone = mobilenet_v3_small(weights=None)
-
-        self.backbone = backbone.features  # nn.Sequential
-        self.backbone_out_channels = 576   # MobileNetV3-Small final channels
-
-        if freeze_backbone:
-            for p in self.backbone.parameters():
-                p.requires_grad = False
-
-        # ---- Neck ----
-        self.neck = nn.Sequential(
-            nn.Conv2d(self.backbone_out_channels, hidden_dim, kernel_size=1, bias=False),
-            nn.BatchNorm2d(hidden_dim),
-            nn.ReLU(inplace=True),
-        )
+            raise ValueError(f"Unknown backbone: {cfg.backbone}")
 
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
 
-        # ---- Shared MLP ----
-        self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+        self.head = nn.Sequential(
+            nn.Linear(backbone_out, cfg.hidden),
             nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Dropout(p=cfg.dropout),
+            nn.Linear(cfg.hidden, cfg.hidden),
             nn.ReLU(inplace=True),
         )
 
-        # Heads
-        self.box_head = nn.Linear(hidden_dim, max_objects * 4)              # K * 4
-        self.cls_head = nn.Linear(hidden_dim, max_objects * self.num_logits)  # K * (C+1)
+        # For each slot: (cx,cy,w,h) in [0,1] + class logits (C)
+        self.fc_box = nn.Linear(cfg.hidden, self.K * 4)
+        self.fc_cls = nn.Linear(cfg.hidden, self.K * self.C)
 
-        nn.init.normal_(self.box_head.weight, mean=0.0, std=0.01)
-        nn.init.constant_(self.box_head.bias, 0.0)
-        nn.init.normal_(self.cls_head.weight, mean=0.0, std=0.01)
-        nn.init.constant_(self.cls_head.bias, 0.0)
+        # init
+        nn.init.normal_(self.fc_box.weight, std=0.01)
+        nn.init.constant_(self.fc_box.bias, 0.0)
+        nn.init.normal_(self.fc_cls.weight, std=0.01)
+        nn.init.constant_(self.fc_cls.bias, 0.0)
 
-    def unfreeze_backbone(self):
-        for p in self.backbone.parameters():
-            p.requires_grad = True
+    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        # x: [B,3,S,S]
+        f = self.backbone(x)               # [B,C,h,w]
+        v = self.pool(f).flatten(1)        # [B,C]
+        h = self.head(v)                   # [B,H]
 
-    def forward(self, x: torch.Tensor) -> dict:
-        """
-        Args:
-            x: [B, 3, H, W]
+        box_raw = self.fc_box(h).view(-1, self.K, 4)     # [B,K,4]
+        cls_raw = self.fc_cls(h).view(-1, self.K, self.C)  # [B,K,C]
 
-        Returns:
-            dict:
-              boxes:  [B, K, 4] (x1,y1,x2,y2) pixel coords on resized image
-              logits: [B, K, C+1]
-        """
-        B = x.shape[0]
+        # convert box_raw to xyxy pixels
+        # box_raw -> sigmoid -> (cx,cy,w,h) in [0,1]
+        t = torch.sigmoid(box_raw)
+        cx, cy, w, h2 = t[..., 0], t[..., 1], t[..., 2], t[..., 3]
 
-        feats = self.backbone(x)                 # [B, 576, h, w]
-        feats = self.neck(feats)                 # [B, hidden_dim, h, w]
-        pooled = self.pool(feats).flatten(1)     # [B, hidden_dim]
+        # constrain sizes a bit to avoid zero-area boxes
+        w = 0.05 + 0.95 * w
+        h2 = 0.05 + 0.95 * h2
 
-        z = self.mlp(pooled)                     # [B, hidden_dim]
-
-        box_raw = self.box_head(z).view(B, self.max_objects, 4)                 # [B,K,4]
-        logits = self.cls_head(z).view(B, self.max_objects, self.num_logits)    # [B,K,C+1]
-
-        # ---- Constrain boxes ----
-        # Interpret raw as normalized xyxy in [0,1] then order corners and scale to pixels.
-        b = torch.sigmoid(box_raw)  # [B,K,4] in [0,1]
-        x1n, y1n, x2n, y2n = b.unbind(dim=-1)
-
-        x1 = torch.minimum(x1n, x2n) * (self.image_size - 1)
-        y1 = torch.minimum(y1n, y2n) * (self.image_size - 1)
-        x2 = torch.maximum(x1n, x2n) * (self.image_size - 1)
-        y2 = torch.maximum(y1n, y2n) * (self.image_size - 1)
-
-        # avoid degenerate boxes
-        x2 = torch.maximum(x2, x1 + 1.0)
-        y2 = torch.maximum(y2, y1 + 1.0)
+        x1 = (cx - 0.5 * w) * (self.S - 1)
+        y1 = (cy - 0.5 * h2) * (self.S - 1)
+        x2 = (cx + 0.5 * w) * (self.S - 1)
+        y2 = (cy + 0.5 * h2) * (self.S - 1)
 
         boxes = torch.stack([x1, y1, x2, y2], dim=-1)
+        boxes[..., 0::2] = boxes[..., 0::2].clamp(0, self.S - 1)
+        boxes[..., 1::2] = boxes[..., 1::2].clamp(0, self.S - 1)
 
-        return {"boxes": boxes, "logits": logits}
+        return {"boxes": boxes, "logits": cls_raw}
