@@ -1,5 +1,32 @@
-- Filter dataset:
+# Part 3 — VOC Relaxed (K=3) — Complete Runbook
 
+This document contains the **exact order of commands** to run for Part 3 using:
+
+- Classes: `person, car, dog`
+- Fixed capacity: `K=3`
+- Background class included (`bg_id = 3`)
+- Dataset: `datasets/part3_voc_k3_relaxed`
+- Checkpoints: `checkpoints/part3`
+- Outputs: `outputs/part3`
+
+---
+
+# 0️⃣ Confirm Branch
+
+```bash
+git status
+git branch
+```
+
+Expected:
+- Branch: `part3-voc-relaxed-k3`
+- Working tree clean (or only intentional changes)
+
+---
+
+# 1️⃣ Build / Filter Dataset (RELAXED + K=3)
+
+```bash
 python tools/build_voc_part3_k3_relaxed.py \
   --voc-root "/Users/yehudafrist/RUNI/computer_vision/project3/datasets/pascal_voc" \
   --out-dir datasets/part3_voc_k3_relaxed \
@@ -7,179 +34,293 @@ python tools/build_voc_part3_k3_relaxed.py \
   --max-objects 3 \
   --selection-strategy prefer_then_area \
   --seed 42
+```
 
-  output: /Users/yehudafrist/RUNI/computer_vision/project3/datasets/part3_voc_k3_relaxed/*
+Expected output:
+- Creates:
+  - `train.json`
+  - `val.json`
+  - `test.json`
+  - `classes.json`
+  - `_stats.json`
+- Console prints:
+  - kept images
+  - truncated_images > 0
+  - padded_images > 0 (normal for VOC)
 
-- Confirm model.py works:
+---
 
-  output: 
+# 2️⃣ Confirm classes.json
 
-- Confirm dataset.py:
+```bash
+cat datasets/part3_voc_k3_relaxed/classes.json
+```
 
-python -c "from part3.dataset import Part3VOCDataset, collate_part3; d=Part3VOCDataset('datasets/part3_voc_k3_relaxed/train.json','datasets/part3_voc_k3_relaxed/classes.json',augment=True); x,t=d[0]; print(x.shape,t['boxes'].shape,t['labels'].shape,t['mask'])"
+Expected:
+```json
+{
+  "classes": ["person", "car", "dog", "__background__"],
+  "bg_id": 3
+}
+```
 
-  output: torch.Size([3, 448, 448]) torch.Size([3, 4]) torch.Size([3]) tensor([ True, False, False])
+---
 
-- Sanity check for loss.py:
+# 3️⃣ Confirm dataset.py Works
 
+```bash
+python -c "from part3.dataset import Part3VOCDataset; d=Part3VOCDataset('datasets/part3_voc_k3_relaxed/train.json','datasets/part3_voc_k3_relaxed/classes.json'); x,t=d[0]; print(x.shape,t['boxes'].shape,t['labels'],t['mask'])"
+```
+
+Expected output example:
+
+```
+torch.Size([3, 448, 448]) torch.Size([3, 4]) tensor([0, 3, 3]) tensor([ True, False, False])
+```
+
+Meaning:
+- 1 real object
+- 2 padded background slots
+
+---
+
+# 4️⃣ Confirm Dataset Contains Multi-Object Samples
+
+```bash
+python - <<'PY'
+from part3.dataset import Part3VOCDataset
+d=Part3VOCDataset('datasets/part3_voc_k3_relaxed/train.json','datasets/part3_voc_k3_relaxed/classes.json')
+counts={0:0,1:0,2:0,3:0}
+for i in range(500):
+    _,t=d[i]
+    n=int(t["mask"].sum().item())
+    counts[n]+=1
+print("mask True histogram:", counts)
+PY
+```
+
+Expected:
+- Non-zero counts for `2` and `3`
+
+---
+
+# 5️⃣ Sanity Check loss.py
+
+```bash
 python -c "import torch; from part3.loss import FixedSlotLoss; L=FixedSlotLoss(4,bg_id=3); out={'boxes':torch.rand(2,3,4)*448,'logits':torch.randn(2,3,4)}; tgt={'boxes':torch.rand(2,3,4)*448,'labels':torch.randint(0,4,(2,3)),'mask':torch.tensor([[1,0,0],[1,1,0]]).bool()}; print(L(out,tgt).keys())"
+```
 
-  output: dict_keys(['loss', 'loss_cls', 'loss_box'])
+Expected:
 
-- Training sanity check:
+```
+dict_keys(['loss', 'loss_cls', 'loss_box'])
+```
 
-python -m part3.train \
-  --data-dir datasets/part3 \
+---
+
+# 6️⃣ Confirm model.py Forward Pass
+
+```bash
+python - <<'PY'
+import torch
+from part3.model import FixedSlotDetector, ModelConfig
+cfg=ModelConfig(image_size=448,max_objects=3,num_classes_total=4,bg_id=3,backbone="mobilenet_v3_small",pretrained=False)
+m=FixedSlotDetector(cfg)
+x=torch.rand(2,3,448,448)
+y=m(x)
+print("boxes:", y["boxes"].shape, "logits:", y["logits"].shape)
+PY
+```
+
+Expected:
+
+```
+boxes: torch.Size([2, 3, 4]) logits: torch.Size([2, 3, 4])
+```
+
+---
+
+# 7️⃣ Training Sanity Check (Short Run)
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.train \
+  --data-dir datasets/part3_voc_k3_relaxed \
   --epochs 3 \
   --batch-size 16 \
-  --freeze-backbone \
-  --num-workers 0
+  --num-workers 0 \
+  --tag voc_k3_relaxed_sanity \
+  --use-focal
+```
 
-output example:
-[DEVICE] mps
-[DATA] train=7079 val=1517 classes=['person', 'car', 'dog'] bg_id=3
-[E000] train loss=3.9836 (cls=0.5912, box=0.6785) | val loss=3.7454 miou=0.3421
-[E001] train loss=3.6915 (cls=0.4574, box=0.6468) | val loss=3.5789 miou=0.3324
-[E002] train loss=3.5856 (cls=0.4195, box=0.6332) | val loss=3.5365 miou=0.3298
+Expected:
+- Training loss printed
+- Validation mAP printed
+- Checkpoints:
+  - `checkpoints/part3/voc_k3_relaxed_sanity/last.pth`
+  - `checkpoints/part3/voc_k3_relaxed_sanity/best.pth`
 
-- Run full training:
+---
 
-python -m part3.train \
-  --data-dir datasets/part3 \
+# 8️⃣ Full Training
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.train \
+  --data-dir datasets/part3_voc_k3_relaxed \
   --image-size 448 \
   --max-objects 3 \
-  --epochs 60 \
-  --batch-size 16 \
-  --freeze-backbone \
-  --unfreeze-epoch 10 \
-  --lr 1e-3 \
+  --epochs 30 \
+  --batch-size 32 \
+  --lr 3e-4 \
   --weight-decay 1e-4 \
-  --num-workers 0 \
-  --log-dir logs/part3_run1 \
-  --ckpt-dir checkpoints/part3_run1
+  --backbone mobilenet_v3_small \
+  --use-focal \
+  --tag voc_k3_relaxed_run1
+```
 
-- Resume if interrupted: 
+Expected:
+- TensorBoard logs in:
+  - `checkpoints/part3/voc_k3_relaxed_run1/tb`
+- Best checkpoint:
+  - `checkpoints/part3/voc_k3_relaxed_run1/best.pth`
 
-python -m part3.train \
-  --data-dir datasets/part3 \
-  --image-size 448 \
-  --max-objects 3 \
-  --epochs 60 \
-  --batch-size 16 \
-  --freeze-backbone \
-  --unfreeze-epoch 10 \
-  --lr 1e-3 \
-  --weight-decay 1e-4 \
-  --num-workers 0 \
-  --log-dir logs/part3_run1 \
-  --ckpt-dir checkpoints/part3_run1 \
-  --resume checkpoints/part3_run1/last.pth
+---
 
-- View TensorBoard curves:
+# 9️⃣ View TensorBoard
 
-tensorboard --logdir logs/part3_run1
-Then open the url and download curves.
+```bash
+tensorboard --logdir checkpoints/part3_relaxed/voc_k3_relaxed_run1/tb
+```
 
-- Run inference on image: 
+Open the URL shown in terminal.
 
-python -m part3.inference \
-  --checkpoint checkpoints/part3/best.pth \
-  --image /Users/yehudafrist/RUNI/computer_vision/project3/datasets/pascal_voc/JPEGImages/2007_000027.jpg \
-  --conf-thresh 0.35 \
-  --out-dir outputs/part3
+Look for:
+- train/loss
+- train/loss_cls
+- train/loss_box
+- val/mAP@0.5
 
-- Test evalute.py:
+---
 
-python -m part3.evaluate \
-  --data-dir datasets/part3 \
+# 🔟 Evaluate on Test Split
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.evaluate \
+  --data-dir datasets/part3_voc_k3_relaxed \
   --split test \
-  --checkpoint checkpoints/part3_run1/best.pth \
+  --checkpoint checkpoints/part3_relaxed/voc_k3_relaxed_run1/best.pth \
   --conf-thresh 0.35 \
   --topk 3 \
   --batch-size 32 \
   --num-workers 0 \
   --out-dir outputs/part3 \
-  --tag run1_best
+  --tag voc_k3_relaxed_run1_best
+```
 
-output: outputs/part3/run1_best_test_ap50.json
+Expected:
+- Console prints AP per class
+- File written:
+  - `outputs/part3/metrics_voc_k3_relaxed_run1_test.json`
 
-- Implemented weighted loss, re-train:
+---
 
-python -m part3.train \
-  --data-dir datasets/part3 \
-  --epochs 60 \
-  --batch-size 16 \
-  --freeze-backbone \
-  --unfreeze-epoch 10 \
-  --lr 1e-3 \
-  --weight-decay 1e-4 \
-  --num-workers 0 \
-  --log-dir logs/part3_run2_weighted \
-  --ckpt-dir checkpoints/part3_run2_weighted
+# 1️⃣1️⃣ Threshold Sweep (Recommended)
 
-- Then evaluate:
+```bash
+for thr in 0.10 0.15 0.20 0.25 0.30; do
+  python -m part3.evaluate \
+    --data-dir datasets/part3_voc_k3_relaxed \
+    --split test \
+    --checkpoint checkpoints/part3_relaxed/voc_k3_relaxed_run1/best.pth \
+    --conf-thresh $thr \
+    --topk 3 \
+    --batch-size 32 \
+    --num-workers 0 \
+    --out-dir outputs/part3 \
+    --tag voc_k3_relaxed_run1_test_thr${thr}
+done
+```
 
-python -m part3.evaluate \
-  --data-dir datasets/part3 \
-  --split test \
-  --checkpoint checkpoints/part3_run2_weighted/best.pth \
-  --conf-thresh 0.35 \
-  --topk 3 \
-  --batch-size 32 \
-  --num-workers 0 \
-  --out-dir outputs/part3 \
-  --tag run2_weighted_best
+Expected:
+- Multiple metric JSON files saved
 
-- Weighted loss didnt help, run inference on image from run1:
+---
 
-python -m part3.inference \
-  --checkpoint checkpoints/part3_run1/best.pth \
-  --classes-json datasets/part3/classes.json \
+# 1️⃣2️⃣ Inference on Test Images
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.run_inference_batch \
+  --index-json datasets/part3_voc_k3_relaxed/test.json \
+  --checkpoint checkpoints/part3_relaxed/voc_k3_relaxed_run1/best.pth \
+  --classes-json datasets/part3_voc_k3_relaxed/classes.json \
   --image-size 448 \
   --max-objects 3 \
-  --conf-thresh 0.35 \
+  --conf-thresh 0.15 \
   --topk 3 \
-  --image /path/to/some_test_image.jpg \
-  --out-dir outputs/part3/infer_run1
+  --out-dir outputs/part3/infer_voc_k3_relaxed_test20 \
+  --n 20 \
+  --seed 42
+```
 
-output: outputs/part3/infer_run1/<image>_pred.jpg
+Expected:
+- outputs/part3/infer_voc_k3_relaxed_test20/*
 
-- Grab n random test images and run inference on all of them
+---
 
-python -m part3.run_inference_batch \
-  --index-json datasets/part3/test.json \
-  --checkpoint checkpoints/part3_run1/best.pth \
-  --out-dir outputs/part3/infer_run1_test30 \
-  --n 30 \
-  --seed 42 \
-  --conf-thresh 0.35
+# 1️⃣3️⃣ Inference on Video (External Requirement)
 
-outputs: utputs/part3/infer_run1_test30/*
+Remove audio (recommended):
 
-- Download video to videos folder
-- Remove sound using:
+```bash
 ffmpeg -i videos/input_video.mp4 -an -vcodec copy videos/input_video_noaudio.mp4
+```
 
-- Run inference on the video:
+Run inference:
 
-KMP_DUPLICATE_LIB_OK=TRUE python -m part3.inference \
-  --checkpoint checkpoints/part3_run1/best.pth \
-  --classes-json datasets/part3/classes.json \
-  --image-size 448 \
-  --max-objects 3 \
-  --conf-thresh 0.25 \
-  --topk 3 \
+```bash
+python -m part3.inference \
+  --checkpoint checkpoints/part3_realxed/voc_k3_relaxed_run1/best.pth \
+  --classes-json datasets/part3_voc_k3_relaxed/classes.json \
   --video videos/input_video_noaudio.mp4 \
-  --out-dir outputs/part3/video_run1_thr025
+  --conf-thresh 0.20 \
+  --out outputs/part3/video_run1_thr020
+```
 
-- Run on k9 video:
+Expected:
+- `outputs/part3/video_run1_thr020/video_out.mp4`
 
-KMP_DUPLICATE_LIB_OK=TRUE python -m part3.inference \
-  --checkpoint checkpoints/part3_run5_aug/best.pth \
-  --classes-json datasets/part3/classes.json \
-  --image-size 448 \
-  --max-objects 3 \
-  --conf-thresh 0.25 \
-  --topk 3 \
-  --video videos/k9_video_input_448_letterbox_noaudio.mp4 \
-  --out-dir outputs/part3/k9_video_run5_aug_thr025
+Important:
+- The video must show at least **two classes in the same frame**.
+
+---
+
+# ✅ Final Checklist
+
+✔ Dataset built (relaxed, padded, truncated)  
+✔ classes.json contains background class  
+✔ Dataset returns correct mask behavior  
+✔ Loss works  
+✔ Model forward shapes correct  
+✔ Training runs  
+✔ mAP@0.5 computed  
+✔ External video inference works  
+
+---
+
+# 🔧 If Results Look Poor
+
+1. Lower confidence threshold (0.10–0.20).
+2. Verify dataset stats:
+   ```bash
+   python - <<'PY'
+   import json
+   from pathlib import Path
+   p=Path("datasets/part3_voc_k3_relaxed/_stats.json")
+   print(json.loads(p.read_text())["per_class_object_counts_selected"])
+   PY
+   ```
+3. Confirm `bg_id` consistency everywhere.
+4. Ensure `car` and `dog` appear in validation/test splits.
+
+---
+
+This completes the full Part 3 execution pipeline.

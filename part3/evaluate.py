@@ -210,7 +210,7 @@ def main():
     device = pick_device()
     print(f"[DEVICE] {device}")
 
-    data_dir = Path(args.data-dir) if isinstance(args.data_dir, str) else Path(args.data_dir)
+    data_dir = Path(args.data_dir)
     split_json = Path(args.data_dir) / f"{args.split}.json"
     classes_json = Path(args.data_dir) / "classes.json"
 

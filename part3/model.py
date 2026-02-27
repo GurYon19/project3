@@ -97,7 +97,6 @@ class FixedSlotDetector(nn.Module):
         y2 = (cy + 0.5 * h2) * (self.S - 1)
 
         boxes = torch.stack([x1, y1, x2, y2], dim=-1)
-        boxes[..., 0::2] = boxes[..., 0::2].clamp(0, self.S - 1)
-        boxes[..., 1::2] = boxes[..., 1::2].clamp(0, self.S - 1)
+        boxes = boxes.clamp(0, self.S - 1)
 
         return {"boxes": boxes, "logits": cls_raw}

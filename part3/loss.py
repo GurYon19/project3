@@ -81,9 +81,13 @@ def ciou_loss_xyxy(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 def match_small_k_bruteforce(cost: torch.Tensor, n_valid_gt: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Exact matching for small K by brute-force permutations.
+    IMPORTANT: cost must be treated as NO-GRAD (discrete argmin).
     cost: [K,K] but only first n_valid_gt columns are real GT.
     returns pred_idx, gt_idx (both length n_valid_gt)
     """
+    # Ensure matching is not part of autograd graph
+    cost = cost.detach()
+
     K = cost.shape[0]
     N = int(n_valid_gt)
     if N == 0:
@@ -99,10 +103,9 @@ def match_small_k_bruteforce(cost: torch.Tensor, n_valid_gt: int) -> Tuple[torch
     for pred_subset in itertools.permutations(range(K), N):
         total = 0.0
         for pi, gi in zip(pred_subset, gt_inds):
-            total = total + cost[pi, gi]
-        total_val = float(total)
-        if total_val < best_cost:
-            best_cost = total_val
+            total += float(cost[pi, gi].item())
+        if total < best_cost:
+            best_cost = total
             best_perm = pred_subset
 
     pred_idx = torch.tensor(best_perm, dtype=torch.long, device=cost.device)
@@ -200,12 +203,11 @@ class FixedSlotLoss(nn.Module):
                 cls_cost = -logp[:, tl_valid]     # [K,N]
                 cost_kn = (1.0 - iou) + self.match_cls_cost_weight * cls_cost
 
-                # Expand to [K,K] for matcher convenience
-                cost_full = torch.full((self.K, self.K), fill_value=10.0, device=device, dtype=cost_kn.dtype)
-                cost_full[:, :n_gt] = cost_kn
-
-                pred_idx, gt_idx = match_small_k_bruteforce(cost_full, n_valid_gt=n_gt)
-
+                with torch.no_grad():
+                    cost_full = torch.full((self.K, self.K), fill_value=10.0, device=device, dtype=cost_kn.dtype)
+                    cost_full[:, :n_gt] = cost_kn.detach()
+                    pred_idx, gt_idx = match_small_k_bruteforce(cost_full, n_valid_gt=n_gt)
+                    
                 assigned_labels[pred_idx] = tl_valid[gt_idx]
 
                 # Box loss for matched pairs
