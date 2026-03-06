@@ -53,19 +53,22 @@ class FixedSlotDetector(nn.Module):
         else:
             raise ValueError(f"Unknown backbone: {cfg.backbone}")
 
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        # 1x1 conv projects backbone channels → hidden dim (keeps spatial dims)
+        self.proj = nn.Conv2d(backbone_out, cfg.hidden, kernel_size=1)
 
-        self.head = nn.Sequential(
-            nn.Linear(backbone_out, cfg.hidden),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=cfg.dropout),
+        # K learnable slot query vectors — each slot attends to different image regions
+        self.slot_queries = nn.Parameter(torch.randn(self.K, cfg.hidden) * 0.02)
+
+        # Per-slot MLP after attention pooling
+        self.slot_mlp = nn.Sequential(
             nn.Linear(cfg.hidden, cfg.hidden),
             nn.ReLU(inplace=True),
+            nn.Dropout(p=cfg.dropout),
         )
 
-        # For each slot: (cx,cy,w,h) in [0,1] + class logits (C)
-        self.fc_box = nn.Linear(cfg.hidden, self.K * 4)
-        self.fc_cls = nn.Linear(cfg.hidden, self.K * self.C)
+        # Per-slot heads (applied independently to each slot's feature)
+        self.fc_box = nn.Linear(cfg.hidden, 4)
+        self.fc_cls = nn.Linear(cfg.hidden, self.C)
 
         # init
         nn.init.normal_(self.fc_box.weight, std=0.01)
@@ -75,12 +78,20 @@ class FixedSlotDetector(nn.Module):
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         # x: [B,3,S,S]
-        f = self.backbone(x)               # [B,C,h,w]
-        v = self.pool(f).flatten(1)        # [B,C]
-        h = self.head(v)                   # [B,H]
+        f = self.backbone(x)               # [B, backbone_out, h, w]
+        f = self.proj(f)                   # [B, hidden, h, w]
+        B, C, H, W = f.shape
+        f_flat = f.view(B, C, H * W)      # [B, hidden, HW]
 
-        box_raw = self.fc_box(h).view(-1, self.K, 4)     # [B,K,4]
-        cls_raw = self.fc_cls(h).view(-1, self.K, self.C)  # [B,K,C]
+        # Per-slot attention: each slot query attends to different spatial regions
+        q = self.slot_queries.unsqueeze(0).expand(B, -1, -1)  # [B, K, hidden]
+        attn = torch.bmm(q, f_flat) / (C ** 0.5)              # [B, K, HW]
+        attn = F.softmax(attn, dim=-1)
+        slot_feats = torch.bmm(attn, f_flat.permute(0, 2, 1)) # [B, K, hidden]
+        slot_feats = self.slot_mlp(slot_feats)                 # [B, K, hidden]
+
+        box_raw = self.fc_box(slot_feats)   # [B, K, 4]
+        cls_raw = self.fc_cls(slot_feats)   # [B, K, C]
 
         # convert box_raw to xyxy pixels
         # box_raw -> sigmoid -> (cx,cy,w,h) in [0,1]
