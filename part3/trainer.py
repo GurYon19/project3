@@ -98,9 +98,6 @@ class Trainer:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
             self.optimizer.step()
 
-            if self.scheduler is not None:
-                self.scheduler.step()
-
             total += float(loss.item())
             total_cls += float(loss_dict["loss_cls"].item())
             total_box += float(loss_dict["loss_box"].item())
@@ -212,6 +209,9 @@ class Trainer:
 
             tr = self.train_one_epoch(dl_train)
             va = self.validate_one_epoch(dl_val)
+
+            if self.scheduler is not None:
+                self.scheduler.step()
 
             # TB (per epoch)
             self.tb.add_scalar("val/loss", va["loss"], e)

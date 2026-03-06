@@ -80,7 +80,9 @@ def predict_image(
     device: torch.device,
 ):
     img = pil_img.convert("RGB").resize((image_size, image_size))
-    x = TF.to_tensor(img).unsqueeze(0).to(device)
+    x = TF.to_tensor(img)
+    x = TF.normalize(x, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    x = x.unsqueeze(0).to(device)
 
     out = model(x)
     boxes = out["boxes"][0].cpu().numpy()          # [K,4]
@@ -134,6 +136,12 @@ def parse_args():
     p.add_argument("--image-size", type=int, default=448)
     p.add_argument("--conf-thresh", type=float, default=0.25)
     p.add_argument("--nms-iou", type=float, default=0.5)
+    p.add_argument("--ema-alpha", type=float, default=0.4,
+                   help="EMA blend factor for box smoothing (0=frozen, 1=no smoothing)")
+    p.add_argument("--ema-decay", type=int, default=5,
+                   help="Frames without detection before a tracked box disappears")
+    p.add_argument("--bg-gate", type=float, default=0.5,
+                   help="Skip slot if background probability exceeds this (filters uncertain slots)")
     return p.parse_args()
 
 
@@ -193,15 +201,65 @@ def main():
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(str(out_path), fourcc, fps, (args.image_size, args.image_size))
 
+        # EMA temporal smoothing: track per SLOT (not per class)
+        # Fixed-slot model has K=3 consistent slots — tracking by slot index
+        # allows multiple boxes of the same class to be tracked independently.
+        ema_alpha = args.ema_alpha          # 0 = frozen, 1 = no memory
+        ema_decay = args.ema_decay          # frames without detection before forgetting
+        # slot_idx -> {"box", "score", "cls", "age"}
+        smoothed: dict = {}
+
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             pil = Image.fromarray(rgb)
-            dets, img = predict_image(model, pil, classes, bg_id, args.image_size, args.conf_thresh, args.nms_iou, device)
-            bgr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-            bgr = draw_dets_cv2(bgr, dets, classes)
+
+            # Get raw per-slot predictions (before conf filtering)
+            img_resized = pil.convert("RGB").resize((args.image_size, args.image_size))
+            x = TF.to_tensor(img_resized)
+            x = TF.normalize(x, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            with torch.no_grad():
+                out = model(x.unsqueeze(0).to(device))
+            raw_boxes = out["boxes"][0].cpu().numpy()    # [K,4]
+            raw_logits = out["logits"][0].cpu()
+            raw_probs = torch.softmax(raw_logits, dim=-1).numpy()  # [K,C]
+
+            active_slots = set()
+            for slot in range(raw_boxes.shape[0]):
+                p = raw_probs[slot].copy()
+                p[bg_id] = -1.0
+                cls = int(np.argmax(p))
+                score = float(raw_probs[slot, cls])
+
+                bg_prob = float(raw_probs[slot, bg_id])
+                if score < args.conf_thresh or bg_prob > args.bg_gate:
+                    # slot below threshold or model thinks it's background — age it out
+                    if slot in smoothed:
+                        smoothed[slot]["age"] += 1
+                        if smoothed[slot]["age"] > ema_decay:
+                            del smoothed[slot]
+                    continue
+
+                active_slots.add(slot)
+                if slot not in smoothed:
+                    smoothed[slot] = {"box": raw_boxes[slot].copy(), "score": score, "cls": cls, "age": 0}
+                else:
+                    s = smoothed[slot]
+                    s["box"] = (1 - ema_alpha) * s["box"] + ema_alpha * raw_boxes[slot]
+                    s["score"] = (1 - ema_alpha) * s["score"] + ema_alpha * score
+                    s["cls"] = cls  # update class label live
+                    s["age"] = 0
+
+            smoothed_dets = [
+                (s["cls"], s["score"], s["box"])
+                for s in smoothed.values()
+            ]
+            smoothed_dets.sort(key=lambda x: x[1], reverse=True)
+
+            bgr = cv2.cvtColor(np.array(img_resized), cv2.COLOR_RGB2BGR)
+            bgr = draw_dets_cv2(bgr, smoothed_dets, classes)
             writer.write(bgr)
 
         cap.release()

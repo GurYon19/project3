@@ -63,6 +63,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--w-box", type=float, default=5.0)
     p.add_argument("--match-cls-cost-weight", type=float, default=0.5)
 
+    # Per-class weights: space-separated floats, one per class in classes.json order
+    # e.g. --class-weights "1.0 2.0 2.0 0.1" for [person, car, dog, background]
+    p.add_argument("--class-weights", type=str, default=None)
+
     p.add_argument("--tag", type=str, default="run1")
     p.add_argument("--out-dir", type=str, default="checkpoints/part3_relaxed")
     p.add_argument("--seed", type=int, default=42)
@@ -145,12 +149,23 @@ def main() -> None:
     )
     model = FixedSlotDetector(cfg).to(device)
 
+    # Parse optional class weights
+    class_weights_tensor = None
+    if args.class_weights is not None:
+        cw = [float(x) for x in args.class_weights.strip().split()]
+        assert len(cw) == num_classes_total, (
+            f"--class-weights must have {num_classes_total} values (one per class), got {len(cw)}"
+        )
+        class_weights_tensor = torch.tensor(cw, dtype=torch.float32)
+        print(f"[CLASS WEIGHTS] {dict(zip(classes, cw))}")
+
     # Loss
     loss_fn = FixedSlotLoss(
         num_classes_total=num_classes_total,
         bg_id=bg_id,
         max_objects=args.max_objects,
         weights=LossWeights(cls=args.w_cls, box=args.w_box),
+        class_weights=class_weights_tensor,
         use_focal=args.use_focal,
         focal_gamma=args.focal_gamma,
         match_cls_cost_weight=args.match_cls_cost_weight,
@@ -158,6 +173,9 @@ def main() -> None:
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+
+    # Cosine annealing scheduler (per-epoch)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.lr * 0.01)
 
     # Output dirs
     run_dir = Path(args.out_dir) / args.tag
@@ -177,6 +195,7 @@ def main() -> None:
         device=device,
         log_dir=run_dir / "tb",
         ckpt_dir=run_dir,   # so best.pth/last.pth go into the run folder
+        scheduler=scheduler,
     )
 
     trainer.fit(dl_train=dl_train, dl_val=dl_val, epochs=args.epochs)

@@ -232,6 +232,7 @@ class Part3VOCDataset(Dataset):
         # Resize image
         img = img.resize((self.image_size, self.image_size), resample=Image.BILINEAR)
         x = TF.to_tensor(img)
+        x = TF.normalize(x, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
         # Resize boxes
         real_boxes = _resize_boxes_xyxy(real_boxes, orig_w, orig_h, self.image_size, self.image_size)
