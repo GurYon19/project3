@@ -9,6 +9,7 @@ results/
 __pycache__/
 videos/
 part3/__pycache__/
+utils/__pycache__/
 
 # =========================
 # Python
