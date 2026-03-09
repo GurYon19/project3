@@ -79,31 +79,131 @@ python main.py part2 --data-dir datasets/part2
 
 ---
 
-### 4. Prepare for Part 3 (Multi-Object Detection)
+### 4. Part 3 — Multi-Class, Multi-Object Detection
 
-**Dataset Options:**
-1. **PASCAL VOC 2012** - Recommended
-   - Download from: http://host.robots.ox.ac.uk/pascal/VOC/voc2012/
-   - 20 classes, 1-3 objects per image
+**Task:** Detect up to K=3 objects per image across 3 classes: `person`, `car`, `dog` (plus background).
 
-2. **COCO (filtered)** - Alternative
-   - Filter for images with 1-3 objects
+**Architecture:** `FixedSlotDetector` — MobileNetV3-Small backbone with per-slot spatial attention heads. Each of the K=3 output slots attends to a different spatial region of the feature map, enabling co-detection of multiple classes in the same image.
 
-**Directory Structure:**
-```
-datasets/part3/
-├── train/
-│   ├── images/
-│   └── annotations.json  (COCO format)
-└── valid/
-    ├── images/
-    └── annotations.json
-```
+#### Dataset
 
-**Run Training:**
+Uses PASCAL VOC 2007+2012 filtered to images containing person, car, or dog (relaxed: images with up to K objects total, at least one foreground object).
+
+Build the dataset index (run once after downloading VOC):
 ```bash
-python main.py part3 --data-dir datasets/part3
+python -m tools.build_voc_part3_k3_relaxed
 ```
+
+Expected structure:
+```
+datasets/part3_voc_k3_relaxed/
+├── classes.json       # {"classes": ["person","car","dog","__background__"], "bg_id": 3}
+├── train.json
+├── val.json
+└── test.json
+```
+
+#### Training
+
+**Standard run (pretrained backbone, 30 epochs):**
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.train \
+  --data-dir datasets/part3_voc_k3_relaxed \
+  --image-size 448 \
+  --max-objects 3 \
+  --epochs 30 \
+  --batch-size 32 \
+  --lr 3e-4 \
+  --weight-decay 1e-4 \
+  --backbone mobilenet_v3_small \
+  --pretrained \
+  --w-cls 1.0 \
+  --w-box 5.0 \
+  --tag run1 \
+  --out-dir checkpoints/part3_spatial
+```
+
+**With focal loss (helps with class imbalance):**
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.train \
+  ... \
+  --use-focal \
+  --focal-gamma 2.0 \
+  --tag focal_run1
+```
+
+Monitor training with TensorBoard:
+```bash
+tensorboard --logdir checkpoints/part3_spatial/run1/tb
+```
+
+#### Evaluation (mAP@0.5)
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.evaluate \
+  --checkpoint checkpoints/part3_spatial/run1/best.pth \
+  --data-dir datasets/part3_voc_k3_relaxed \
+  --split test \
+  --conf-thresh 0.25 \
+  --tag run1
+```
+
+Results are written to `outputs/part3/metrics_<tag>.json`.
+
+#### Inference
+
+**On a single image:**
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.inference \
+  --checkpoint checkpoints/part3_spatial/run1/best.pth \
+  --classes-json datasets/part3_voc_k3_relaxed/classes.json \
+  --image path/to/image.jpg \
+  --conf-thresh 0.25
+```
+
+**On a video (with temporal smoothing):**
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python -m part3.inference \
+  --checkpoint checkpoints/part3_spatial/run1/best.pth \
+  --classes-json datasets/part3_voc_k3_relaxed/classes.json \
+  --video path/to/video.mp4 \
+  --conf-thresh 0.25 \
+  --bg-gate 0.5 \
+  --ema-alpha 0.4 \
+  --ema-decay 5 \
+  --out outputs/part3/infer
+```
+
+Key inference flags:
+- `--conf-thresh` — minimum class confidence to show a box (lower = more detections, more noise)
+- `--bg-gate` — suppress slot if background probability exceeds this value
+- `--ema-alpha` — EMA blend factor for box smoothing: 0=frozen, 1=no smoothing (lower = smoother but laggier)
+- `--ema-decay` — frames without detection before a tracked box disappears
+
+#### Architecture: Spatial Slot Attention
+
+The key architectural improvement over a naive GAP (Global Average Pool) baseline is **per-slot spatial attention**:
+
+```
+Backbone features: [B, 576, h, w]
+     ↓ 1×1 conv
+Projected features: [B, 512, h, w]  →  flattened to [B, 512, H×W]
+     ↓ dot-product attention (K learnable slot queries × spatial positions)
+Slot features: [B, K, 512]   (each slot attends to a different region)
+     ↓ per-slot MLP + box/class heads
+Output: boxes [B, K, 4],  logits [B, K, C]
+```
+
+With GAP, all K slots share the same pooled feature vector, so the model cannot distinguish multiple objects. With spatial attention, each slot query specializes to a different part of the image, enabling true multi-class co-detection.
+
+**Results (best checkpoint):**
+
+| Class | AP@0.5 |
+|-------|--------|
+| person | 0.446 |
+| car | 0.200 |
+| dog | 0.472 |
+| **mAP@0.5** | **0.376** |
 
 ---
 
@@ -111,21 +211,38 @@ python main.py part3 --data-dir datasets/part3
 
 ```
 project3/
-├── models/
-│   ├── backbone.py      # MobileNetV3-Small loader
-│   ├── heads.py         # Detection heads (Part 2 & 3)
-│   └── detector.py      # Complete detector wrapper
-├── data/
-│   ├── dataset.py       # Dataset loaders (COCO/YOLO/VOC)
-│   └── transforms.py    # Augmentation pipeline
-├── utils/
-│   ├── loss.py          # Custom loss functions
-│   ├── metrics.py       # IoU, mAP, detection metrics
-│   └── visualization.py # Bbox drawing, video generation
-├── trainer.py           # Training engine with TensorBoard
 ├── part1_classification.py  # Part 1 demo script
-├── main.py              # CLI entry point
-└── requirements.txt     # Dependencies
+├── main.py                  # CLI entry point (Parts 1 & 2)
+├── part3/
+│   ├── model.py      # FixedSlotDetector (spatial attention architecture)
+│   ├── dataset.py    # Part3VOCDataset — VOC loader with augmentation
+│   ├── loss.py       # FixedSlotLoss — Hungarian matching + CIoU + focal CE
+│   ├── trainer.py    # Trainer — training loop, validation, checkpointing
+│   ├── train.py      # Training entry point (python -m part3.train)
+│   ├── evaluate.py   # mAP@0.5 evaluation (python -m part3.evaluate)
+│   └── inference.py  # Image/folder/video inference (python -m part3.inference)
+├── tools/
+│   ├── build_voc_part3_k3_relaxed.py  # Build dataset index from VOC
+│   └── check_class_dist.py            # Print per-class instance counts
+├── datasets/
+│   └── part3_voc_k3_relaxed/          # Dataset index JSONs
+├── checkpoints/
+│   └── part3_spatial/<tag>/
+│       ├── best.pth        # Best checkpoint by val mIoU
+│       ├── last.pth        # Last epoch checkpoint
+│       ├── summary.json    # Full training history
+│       └── tb/             # TensorBoard logs
+├── outputs/
+│   └── part3/              # Evaluation results and inference outputs
+├── models/
+│   ├── backbone.py
+│   ├── heads.py
+│   └── detector.py
+├── utils/
+│   ├── loss.py
+│   ├── metrics.py
+│   └── visualization.py
+└── requirements.txt
 ```
 
 ---
