@@ -155,23 +155,22 @@ Results are written to `outputs/part3/metrics_<tag>.json`.
 **On a single image:**
 ```bash
 KMP_DUPLICATE_LIB_OK=TRUE python -m part3.inference \
-  --checkpoint checkpoints/part3_spatial/run1/best.pth \
+  --checkpoint checkpoints/part3_spatial/spatial_attn_focal/best.pth \
   --classes-json datasets/part3_voc_k3_relaxed/classes.json \
   --image path/to/image.jpg \
-  --conf-thresh 0.25
+  --conf-thresh 0.20
 ```
 
 **On a video (with temporal smoothing):**
 ```bash
 KMP_DUPLICATE_LIB_OK=TRUE python -m part3.inference \
-  --checkpoint checkpoints/part3_spatial/run1/best.pth \
+  --checkpoint checkpoints/part3_spatial/spatial_attn_focal/best.pth \
   --classes-json datasets/part3_voc_k3_relaxed/classes.json \
   --video path/to/video.mp4 \
-  --conf-thresh 0.25 \
+  --conf-thresh 0.20 \
   --bg-gate 0.5 \
   --ema-alpha 0.4 \
-  --ema-decay 5 \
-  --out outputs/part3/infer
+  --out outputs/part3/infer_focal_final
 ```
 
 Key inference flags:

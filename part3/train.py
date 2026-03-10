@@ -67,6 +67,8 @@ def parse_args() -> argparse.Namespace:
     # e.g. --class-weights "1.0 2.0 2.0 0.1" for [person, car, dog, background]
     p.add_argument("--class-weights", type=str, default=None)
 
+    p.add_argument("--aug-scale-min", type=float, default=0.60)
+
     p.add_argument("--tag", type=str, default="run1")
     p.add_argument("--out-dir", type=str, default="checkpoints/part3_relaxed")
     p.add_argument("--seed", type=int, default=42)
@@ -112,6 +114,7 @@ def main() -> None:
         image_size=args.image_size,
         max_objects=args.max_objects,
         augment=True,
+        aug_scale_min=args.aug_scale_min,
     )
     ds_val = Part3VOCDataset(
         index_json=val_json,
