@@ -196,14 +196,17 @@ Output: boxes [B, K, 4],  logits [B, K, C]
 
 With GAP, all K slots share the same pooled feature vector, so the model cannot distinguish multiple objects. With spatial attention, each slot query specializes to a different part of the image, enabling true multi-class co-detection.
 
-**Results (best checkpoint):**
+**Results — ablation across training configurations (test set, conf-thresh=0.25):**
 
-| Class | AP@0.5 |
-|-------|--------|
-| person | 0.446 |
-| car | 0.200 |
-| dog | 0.472 |
-| **mAP@0.5** | **0.376** |
+| Model | person | car | dog | mAP@0.5 |
+|-------|--------|-----|-----|---------|
+| GAP baseline (no pretrained) | — | — | — | 0.150 |
+| GAP + pretrained + ImageNet norm | ~0.39 | ~0.20 | ~0.31 | 0.354 |
+| Spatial attention (gamma=0) | 0.446 | 0.200 | 0.472 | 0.376 |
+| Spatial attention + focal (gamma=2.0) | 0.476 | 0.225 | 0.493 | **0.398** |
+| Spatial attention + focal (gamma=3.0) | 0.446 | 0.188 | 0.478 | 0.371 |
+
+Best checkpoint: `checkpoints/part3_spatial/spatial_attn_focal/best.pth` (focal gamma=2.0)
 
 ---
 
