@@ -27,8 +27,8 @@ Integrated directly into the bottleneck blocks, SE modules provide "channel atte
 - **Optimization**: For efficiency, the SE blocks in MobileNetV3 use a reduced dimensionality (1/4 of channels) to keep computational cost minimal while boosting accuracy.
 
 2.3. Hard-Swish Activation
-The standard Swish activation ($x \cdot \sigma(x)$) improves accuracy but uses the expensive Sigmoid function.
-- **Solution**: MobileNetV3 introduces "Hard-Swish": $h\text{-}swish(x) = x \frac{\text{ReLU6}(x+3)}{6}$
+The standard Swish activation (x * sigma(x)) improves accuracy but uses the expensive Sigmoid function.
+- **Solution**: MobileNetV3 introduces "Hard-Swish": h-swish(x) = x * ReLU6(x+3) / 6
 - **Benefit**: It mimics Swish using only standard arithmetic and ReLU6, making it extremely fast and quantization-friendly on hardware.
 
 2.4. 5x5 Depthwise Convolutions
@@ -50,6 +50,12 @@ The final layers were redesigned to reduce latency. The expensive 1x1 expansion 
 3.2. Limitations
 - **Fine Detail**: The reduced channel capacity (limited to 576 features) means it struggles with fine-grained classification. For example, similar dog breeds might be confused compared to deeper ResNet models which have 4x the channel width.
 - **Complexity**: While efficient, the heterogeneous mix of kernel sizes and activation functions makes manual implementation more complex than uniform architectures.
+
+3.3. Inference Demonstration
+Below is the inference test we ran using our script on several random validation images, showcasing the output classifications and top predictions.
+
+**[PLACEHOLDER: Paste the image 'outputs/part1_classification_results.png' directly here]**
+*Figure 1: Inference classification results on random test images.*
 
 **Conclusion**: MobileNetV3-Small is a prime example of machine-optimized design. By trading slight theoretical complexity (irregular blocks) for practical speed (h-swish, efficient head), it provides an ideal, lightweight backbone for our object detection task.
 

@@ -34,6 +34,9 @@ PART2_CONFIG = {
     "model_name": "small",
 }
 
+# Inference
+VIDEO_START_FRAME = 0  # Set > 0 to skip ahead for debugging
+
 # Device
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

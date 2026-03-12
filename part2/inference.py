@@ -11,7 +11,7 @@ import argparse
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import DEVICE, IMAGE_SIZE, IMAGENET_MEAN, IMAGENET_STD
+from config import DEVICE, IMAGE_SIZE, IMAGENET_MEAN, IMAGENET_STD, VIDEO_START_FRAME
 from models.detector import create_detector
 
 
@@ -134,7 +134,7 @@ def run_inference_on_folder(model, folder_path: str, output_folder: str = None):
     print(f"\n✅ Predictions saved to: {output}")
 
 
-def run_inference_on_video(model, video_path: str, output_path: str = None):
+def run_inference_on_video(model, video_path: str, output_path: str = None, start_frame: int = 0):
     """Run inference on video file."""
     cap = cv2.VideoCapture(video_path)
     
@@ -157,12 +157,18 @@ def run_inference_on_video(model, video_path: str, output_path: str = None):
         writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     
     frame_count = 0
-    alpha = 0.25  # Smoothing factor (20% current, 80% history) for temporal stability
+
+    # Skip to start frame if specified
+    if start_frame > 0:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        frame_count = start_frame
+        print(f"Skipping to frame {start_frame}...")
+    alpha = 0.35  # Smoothing factor (40% current, 60% history) — more responsive tracking
     history_box = None
     consecutive_lost_frames = 0
-    MAX_JUMP = 0.15  # Sensitive: object jump beyond 12% is considered lost
-    MIN_SIZE = 0.02  # Sensitive: minimal viable size is 5%
-    MAX_SIZE_CHANGE = 0.4  # Sensitive: box dimensions shouldn't change > 35% in one frame
+    MAX_JUMP = 0.5  # Allow larger jumps (camera cuts, fast movement)
+    MIN_SIZE = 0.02  # Accept smaller detections
+    MAX_SIZE_CHANGE = 0.8  # Allow bigger scale changes between frames
 
     try:
         while True:
@@ -283,6 +289,7 @@ if __name__ == "__main__":
     parser.add_argument('--video', type=str, default=None, help='Video file path')
     parser.add_argument('--webcam', action='store_true', help='Run on webcam')
     parser.add_argument('--output', type=str, default=None, help='Output path')
+    parser.add_argument('--start-frame', type=int, default=VIDEO_START_FRAME, help='Start from this frame (for debugging)')
     
     args = parser.parse_args()
     
@@ -293,7 +300,7 @@ if __name__ == "__main__":
     if args.webcam:
         run_webcam_inference(model)
     elif args.video:
-        run_inference_on_video(model, args.video, args.output)
+        run_inference_on_video(model, args.video, args.output, start_frame=args.start_frame)
     elif args.folder:
         run_inference_on_folder(model, args.folder, args.output)
     elif args.image:
