@@ -1,0 +1,48 @@
+Collecting huggingface_hub
+  Downloading huggingface_hub-1.6.0-py3-none-any.whl.metadata (13 kB)
+Requirement already satisfied: filelock>=3.10.0 in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from huggingface_hub) (3.18.0)
+Requirement already satisfied: fsspec>=2023.5.0 in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from huggingface_hub) (2025.5.1)
+Collecting hf-xet<2.0.0,>=1.3.2 (from huggingface_hub)
+  Downloading hf_xet-1.3.2-cp37-abi3-win_amd64.whl.metadata (4.9 kB)
+Requirement already satisfied: httpx<1,>=0.23.0 in C:\Users\yonig\AppData\Roaming\Python\Python311\site-packages (from huggingface_hub) (0.28.1)
+Requirement already satisfied: packaging>=20.9 in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from huggingface_hub) (26.0)
+Requirement already satisfied: pyyaml>=5.1 in C:\Users\yonig\AppData\Roaming\Python\Python311\site-packages (from huggingface_hub) (6.0.3)
+Requirement already satisfied: tqdm>=4.42.1 in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from huggingface_hub) (4.67.1)
+Collecting typer (from huggingface_hub)
+  Downloading typer-0.24.1-py3-none-any.whl.metadata (16 kB)
+Requirement already satisfied: typing-extensions>=4.1.0 in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from huggingface_hub) (4.15.0)
+Requirement already satisfied: anyio in C:\Users\yonig\AppData\Roaming\Python\Python311\site-packages (from httpx<1,>=0.23.0->huggingface_hub) (4.12.1)
+Requirement already satisfied: certifi in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from httpx<1,>=0.23.0->huggingface_hub) (2025.6.15)
+Requirement already satisfied: httpcore==1.* in C:\Users\yonig\AppData\Roaming\Python\Python311\site-packages (from httpx<1,>=0.23.0->huggingface_hub) (1.0.9)
+Requirement already satisfied: idna in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from httpx<1,>=0.23.0->huggingface_hub) (3.10)
+Requirement already satisfied: h11>=0.16 in C:\Users\yonig\AppData\Roaming\Python\Python311\site-packages (from httpcore==1.*->httpx<1,>=0.23.0->huggingface_hub) (0.16.0)
+Requirement already satisfied: colorama in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from tqdm>=4.42.1->huggingface_hub) (0.4.6)
+Requirement already satisfied: click>=8.2.1 in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from typer->huggingface_hub) (8.2.1)
+Collecting shellingham>=1.3.0 (from typer->huggingface_hub)
+  Downloading shellingham-1.5.4-py2.py3-none-any.whl.metadata (3.5 kB)
+Requirement already satisfied: rich>=12.3.0 in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from typer->huggingface_hub) (14.0.0)
+Collecting annotated-doc>=0.0.2 (from typer->huggingface_hub)
+  Downloading annotated_doc-0.0.4-py3-none-any.whl.metadata (6.6 kB)
+Requirement already satisfied: markdown-it-py>=2.2.0 in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from rich>=12.3.0->typer->huggingface_hub) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from rich>=12.3.0->typer->huggingface_hub) (2.19.2)
+Requirement already satisfied: mdurl~=0.1 in C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages (from markdown-it-py>=2.2.0->rich>=12.3.0->typer->huggingface_hub) (0.1.2)
+Downloading huggingface_hub-1.6.0-py3-none-any.whl (612 kB)
+   ---------------------------------------- 612.9/612.9 kB 440.1 kB/s  0:00:01
+Downloading hf_xet-1.3.2-cp37-abi3-win_amd64.whl (3.6 MB)
+   ---------------------------------------- 3.6/3.6 MB 276.6 kB/s  0:00:12
+Downloading typer-0.24.1-py3-none-any.whl (56 kB)
+Downloading annotated_doc-0.0.4-py3-none-any.whl (5.3 kB)
+Downloading shellingham-1.5.4-py2.py3-none-any.whl (9.8 kB)
+Installing collected packages: shellingham, hf-xet, annotated-doc, typer, huggingface_hub
+
+Successfully installed annotated-doc-0.0.4 hf-xet-1.3.2 huggingface_hub-1.6.0 shellingham-1.5.4 typer-0.24.1
+
+[notice] A new release of pip is available: 26.0 -> 26.0.1
+[notice] To update, run: python.exe -m pip install --upgrade pip
+C:\Users\yonig\AppData\Local\Programs\Python\Python311\Lib\site-packages\huggingface_hub\utils\_validators.py:206: UserWarning: The `local_dir_use_symlinks` argument is deprecated and ignored in `snapshot_download`. Downloading to a local directory does not use symlinks anymore.
+  warnings.warn(
+huggingface_hub not found. Installing...
+Starting download...
+Fetching 133 files:   0%|          | 0/133 [00:00<?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 133 files:   1%|          | 1/133 [00:01<02:21,  1.08s/it]Fetching 133 files:   2%|1         | 2/133 [00:18<23:32, 10.78s/it]Fetching 133 files:   3%|3         | 4/133 [05:26<3:36:21, 100.63s/it]Fetching 133 files:   5%|5         | 7/133 [06:04<1:45:16, 50.13s/it] Fetching 133 files:  29%|##8       | 38/133 [06:47<10:21,  6.54s/it] Fetching 133 files:  31%|###       | 41/133 [11:28<24:44, 16.13s/it]Fetching 133 files:  32%|###1      | 42/133 [11:36<23:50, 15.73s/it]Fetching 133 files:  52%|#####1    | 69/133 [12:02<06:24,  6.01s/it]Fetching 133 files:  64%|######3   | 85/133 [12:05<03:08,  3.92s/it]Fetching 133 files:  66%|######6   | 88/133 [12:31<03:15,  4.34s/it]Fetching 133 files:  67%|######6   | 89/133 [13:08<04:08,  5.65s/it]Fetching 133 files:  68%|######7   | 90/133 [13:26<04:31,  6.32s/it]Fetching 133 files:  68%|######8   | 91/133 [14:31<07:21, 10.52s/it]Fetching 133 files:  71%|#######1  | 95/133 [16:06<09:06, 14.38s/it]Fetching 133 files:  89%|########9 | 119/133 [16:23<01:04,  4.62s/it]Fetching 133 files:  90%|######### | 120/133 [16:31<01:01,  4.76s/it]Fetching 133 files:  95%|#########4| 126/133 [17:10<00:36,  5.22s/it]Fetching 133 files: 100%|##########| 133/133 [17:10<00:00,  7.75s/it]
+Download completed successfully!

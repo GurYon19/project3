@@ -11,32 +11,30 @@ class SingleObjectHead(nn.Module):
     """
     Detection head for single-object detection (Part 2).
     
-    Input: Flattened feature vector from backbone (B, 576)
+    Input: Flattened feature vector from backbone (B, 9216)
     Output: Bounding box coordinates (B, 4) normalized to [0, 1]
     
     Bounding Box Format: (x_center, y_center, width, height)
     """
-    def __init__(self, in_features: int = 1024):
+    def __init__(self, in_features: int = 9216):
         super().__init__()
         
-        # Senior CV Review fixes:
-        # 1. Linear (bias=False) -> BN -> ReLU
-        # 2. Removed final Sigmoid because we use Smooth L1 loss which doesn't saturate
         self.net = nn.Sequential(
-            nn.Linear(in_features, 512, bias=False),
-            nn.BatchNorm1d(512),
+            nn.Linear(in_features, 512),
             nn.ReLU(inplace=True),
+            nn.BatchNorm1d(512),
             nn.Dropout(0.3),
             
-            nn.Linear(512, 256, bias=False),
-            nn.BatchNorm1d(256),
+            nn.Linear(512, 256),
             nn.ReLU(inplace=True),
+            nn.BatchNorm1d(256),
             nn.Dropout(0.2),
             
             nn.Linear(256, 128),
             nn.ReLU(inplace=True),
             
-            nn.Linear(128, 4)  # No Sigmoid, will clamp at inference in wrapper
+            nn.Linear(128, 4),
+            nn.Sigmoid()  # Bound output to [0, 1]
         )
         
         self._init_weights()
@@ -44,8 +42,7 @@ class SingleObjectHead(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                # Senior CV Review fix: Kaiming He Init for ReLU
-                nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
+                nn.init.xavier_uniform_(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
     
