@@ -1,28 +1,5 @@
 # Deep Learning Object Detection Project
 
-## Project Status: ✅ Core Infrastructure Complete
-
-### What's Been Implemented
-
-#### ✅ Part 1: Classification Backbone
-- **Backbone**: MobileNetV3-Small (as per ID calculation: digit-sum = 9)
-- **Script**: `part1_classification.py`
-- **Status**: Ready to run (needs sample images)
-
-#### ✅ Part 2: Single Object Detection  
-- **Model**: `SingleObjectHead` - predicts one bounding box
-- **Loss**: Smooth L1 + IoU loss
-- **Dataset Support**: COCO, YOLO, Pascal VOC formats
-- **Status**: Ready for training (needs dataset)
-
-#### ✅ Part 3: Multi-Object Detection
-- **Model**: `MultiObjectHead` - predicts up to 3 objects with classes
-- **Loss**: Composite loss (box + classification + objectness)
-- **Dataset Support**: COCO, Pascal VOC formats
-- **Status**: Ready for training (needs dataset)
-
----
-
 ## Quick Start Guide
 
 ### 1. Install Dependencies
@@ -74,7 +51,7 @@ datasets/part2/
 
 **Run Training:**
 ```bash
-python main.py part2 --data-dir datasets/part2
+python -m part2.train --data-dir datasets/part2
 ```
 
 ---
@@ -126,10 +103,21 @@ KMP_DUPLICATE_LIB_OK=TRUE python -m part3.train \
 **With focal loss (helps with class imbalance):**
 ```bash
 KMP_DUPLICATE_LIB_OK=TRUE python -m part3.train \
-  ... \
+  --data-dir datasets/part3_voc_k3_relaxed \
+  --image-size 448 \
+  --max-objects 3 \
+  --epochs 30 \
+  --batch-size 32 \
+  --lr 3e-4 \
+  --weight-decay 1e-4 \
+  --backbone mobilenet_v3_small \
+  --pretrained \
+  --w-cls 1.0 \
+  --w-box 5.0 \
   --use-focal \
   --focal-gamma 2.0 \
-  --tag focal_run1
+  --tag spatial_attn_focal \
+  --out-dir checkpoints/part3_spatial
 ```
 
 Monitor training with TensorBoard:
@@ -204,6 +192,7 @@ With GAP, all K slots share the same pooled feature vector, so the model cannot 
 | Spatial attention (gamma=0) | 0.446 | 0.200 | 0.472 | 0.376 |
 | Spatial attention + focal (gamma=2.0) | 0.476 | 0.225 | 0.493 | **0.398** |
 | Spatial attention + focal (gamma=3.0) | 0.446 | 0.188 | 0.478 | 0.371 |
+| Spatial attention + focal (gamma=2.0) + aug_scale_min=0.40 | 0.425 | 0.203 | 0.482 | 0.370 |
 
 Best checkpoint: `checkpoints/part3_spatial/spatial_attn_focal/best.pth` (focal gamma=2.0)
 
@@ -213,29 +202,29 @@ Best checkpoint: `checkpoints/part3_spatial/spatial_attn_focal/best.pth` (focal 
 
 ```
 project3/
-├── part1_classification.py  # Part 1 demo script
-├── main.py                  # CLI entry point (Parts 1 & 2)
+├── part1/
+│   ├── train.py              # Part 1 classification script
+│   ├── report.txt
+│   └── images/               # Sample images for inference demo
+├── part2/
+│   ├── train.py              # Part 2 training
+│   ├── trainer.py
+│   ├── inference.py
+│   └── visualize_worst.py
 ├── part3/
-│   ├── model.py      # FixedSlotDetector (spatial attention architecture)
-│   ├── dataset.py    # Part3VOCDataset — VOC loader with augmentation
-│   ├── loss.py       # FixedSlotLoss — Hungarian matching + CIoU + focal CE
-│   ├── trainer.py    # Trainer — training loop, validation, checkpointing
-│   ├── train.py      # Training entry point (python -m part3.train)
-│   ├── evaluate.py   # mAP@0.5 evaluation (python -m part3.evaluate)
-│   └── inference.py  # Image/folder/video inference (python -m part3.inference)
+│   ├── model.py              # FixedSlotDetector (spatial attention architecture)
+│   ├── dataset.py            # Part3VOCDataset — VOC loader with augmentation
+│   ├── loss.py               # FixedSlotLoss — Hungarian matching + CIoU + focal CE
+│   ├── trainer.py            # Trainer — training loop, validation, checkpointing
+│   ├── train.py              # Training entry point (python -m part3.train)
+│   ├── evaluate.py           # mAP@0.5 evaluation (python -m part3.evaluate)
+│   ├── inference.py          # Image/folder/video inference (python -m part3.inference)
+│   └── run_inference_batch.py
 ├── tools/
 │   ├── build_voc_part3_k3_relaxed.py  # Build dataset index from VOC
-│   └── check_class_dist.py            # Print per-class instance counts
-├── datasets/
-│   └── part3_voc_k3_relaxed/          # Dataset index JSONs
-├── checkpoints/
-│   └── part3_spatial/<tag>/
-│       ├── best.pth        # Best checkpoint by val mIoU
-│       ├── last.pth        # Last epoch checkpoint
-│       ├── summary.json    # Full training history
-│       └── tb/             # TensorBoard logs
-├── outputs/
-│   └── part3/              # Evaluation results and inference outputs
+│   ├── check_class_dist.py
+│   ├── filter_single_object.py
+│   └── ...                   # Other dataset utilities
 ├── models/
 │   ├── backbone.py
 │   ├── heads.py
@@ -244,7 +233,23 @@ project3/
 │   ├── loss.py
 │   ├── metrics.py
 │   └── visualization.py
-└── requirements.txt
+├── data/
+│   ├── dataset.py
+│   └── transforms.py
+├── datasets/
+│   └── part3_voc_k3_relaxed/ # Dataset index JSONs (train/val/test + classes.json)
+├── checkpoints/
+│   └── part3_spatial/<tag>/
+│       ├── best.pth          # Best checkpoint by val mIoU
+│       ├── last.pth
+│       ├── summary.json      # Full training history
+│       └── tb/               # TensorBoard logs
+├── outputs/
+│   └── part3/                # Evaluation results and inference outputs
+├── videos/                   # Input/output videos
+├── config.py
+├── requirements.txt
+└── README.md
 ```
 
 ---
@@ -287,10 +292,10 @@ project3/
   - Model size: ~10 MB
 
 ### For Part 2 & 3:
-- Train models using `main.py`
-- Monitor with TensorBoard: `tensorboard --logdir logs/`
+- Monitor with TensorBoard: `tensorboard --logdir checkpoints/part3_spatial/<tag>/tb`
 - Best models saved to `checkpoints/`
-- Run inference on videos: `python main.py inference --phase 2 --checkpoint checkpoints/part2/best_model.pth --input video.mp4 --output result.mp4`
+- Part 3 training: `python -m part3.train` (see Part 3 section above for full command)
+- Part 3 inference: `python -m part3.inference` (see Part 3 section above for full command)
 
 ---
 
