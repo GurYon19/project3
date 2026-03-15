@@ -3,8 +3,6 @@ datasets.zip
 dataset.zip
 outputs/
 old datasets/
-checkpoints/
-logs/
 results/
 __pycache__/
 videos/
@@ -30,8 +28,15 @@ old datasets/
 # =========================
 # Training Artifacts
 # =========================
-checkpoints/
-logs/
+checkpoints/**
+!checkpoints/part3_spatial/
+!checkpoints/part3_spatial/spatial_attn_focal/
+!checkpoints/part3_spatial/spatial_attn_focal/best.pth
+!checkpoints/part3_spatial/spatial_attn_focal/tb/
+!checkpoints/part3_spatial/spatial_attn_focal/tb/**
+logs/**
+!logs/part3/
+!logs/part3/**
 outputs/
 results/
 videos/
