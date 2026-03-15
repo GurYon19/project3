@@ -259,55 +259,9 @@ project3/
 
 ---
 
-## Next Steps
+## Authors
 
-### Immediate Actions:
-1. ✅ **Install dependencies** (see above)
-2. ✅ **Add images to `part1_images/`** for classification demo
-3. ✅ **Run Part 1** to verify setup
-4. 📥 **Download datasets** for Part 2 and Part 3
-5. 🚀 **Start training!**
+- Yehonatan Gurevich
+- Yehuda Frist
 
-### For Part 1 Report:
-- Run `part1_classification.py`
-- Analyze MobileNetV3-Small architecture
-- Document:
-  - Total parameters: ~2.5M
-  - Input size: 224x224
-  - Output: 1000 classes (ImageNet)
-  - Model size: ~10 MB
 
-### For Part 2 & 3:
-- Monitor with TensorBoard: `tensorboard --logdir checkpoints/part3_spatial/<tag>/tb`
-- Best models saved to `checkpoints/`
-- Part 3 training: `python -m part3.train` (see Part 3 section above for full command)
-- Part 3 inference: `python -m part3.inference` (see Part 3 section above for full command)
-
----
-
-## Troubleshooting
-
-**Import Errors?**
-```bash
-pip install torch torchvision --upgrade
-```
-
-**No GPU?**
-- Training will use CPU automatically
-- Expect slower training times
-
-**Dataset Format Issues?**
-- Check annotation format matches (COCO JSON, YOLO txt, or VOC XML)
-- Verify image paths are correct
-- Ensure bbox format is correct
-
----
-
-## Contact & Support
-
-For questions about the project structure or implementation, refer to:
-- `Project3_guidelines-3(2).txt` - Original requirements
-- `tips.txt` - Additional guidance
-- Code comments in each module
-
-**Good luck with your project! 🚀**
