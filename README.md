@@ -10,48 +10,22 @@ pip install torch torchvision numpy pillow matplotlib opencv-python tensorboard 
 
 ### 2. Run Part 1 (Classification Demo)
 
-**Step 1**: Add sample images to `part1_images/` directory
-- Add 3-5 images (JPG, PNG, etc.)
-- Examples: cat.jpg, dog.jpg, car.jpg, etc.
+Sample images are already in `part1/images/`. Run:
 
-**Step 2**: Run the classification script
 ```bash
-python part1_classification.py
+python part1/train.py
 ```
 
-This will:
-- Load MobileNetV3-Small with ImageNet weights
-- Run inference on your images
-- Display top-5 predictions for each image
-- Save results to `outputs/part1_classification_results.png`
+### 3. Run Part 2 (Single Object Detection)
 
----
-
-### 3. Prepare for Part 2 (Single Object Detection)
-
-**Dataset Options:**
-1. **COCO (Dogs)** - Recommended
-   - Download from: https://cocodataset.org/
-   - Filter for single-object images of dogs
-   
-2. **Roboflow** - Easiest
-   - Browse: https://public.roboflow.com/object-detection
-   - Download a single-class dataset (e.g., "Person Detection")
-
-**Directory Structure:**
-```
-datasets/part2/
-├── train/
-│   ├── images/
-│   └── annotations.json  (COCO format)
-└── valid/
-    ├── images/
-    └── annotations.json
-```
-
-**Run Training:**
+**Run inference:**
 ```bash
-python -m part2.train --data-dir datasets/part2
+python part2/inference.py --folder datasets/part2/test --checkpoint checkpoints/part2/best_model.pth
+```
+
+**Run training:**
+```bash
+python part2/train.py --data-dir datasets/part2
 ```
 
 ---
@@ -202,54 +176,66 @@ Best checkpoint: `checkpoints/part3_spatial/spatial_attn_focal/best.pth` (focal 
 
 ```
 project3/
+├── config.py                 # Global configuration
+├── requirements.txt
+├── colab_runner.ipynb        # Google Colab training notebook
+│
 ├── part1/
-│   ├── train.py              # Part 1 classification script
+│   ├── train.py              # Classification inference demo
 │   ├── report.txt
-│   └── images/               # Sample images for inference demo
+│   └── images/               # Sample images for demo
+│
 ├── part2/
-│   ├── train.py              # Part 2 training
+│   ├── train.py              # Part 2 training script
 │   ├── trainer.py
 │   ├── inference.py
-│   └── visualize_worst.py
+│   ├── visualize_worst.py
+│   └── report.txt
+│
 ├── part3/
 │   ├── model.py              # FixedSlotDetector (spatial attention architecture)
 │   ├── dataset.py            # Part3VOCDataset — VOC loader with augmentation
 │   ├── loss.py               # FixedSlotLoss — Hungarian matching + CIoU + focal CE
-│   ├── trainer.py            # Trainer — training loop, validation, checkpointing
+│   ├── trainer.py            # Training loop, validation, checkpointing
 │   ├── train.py              # Training entry point (python -m part3.train)
 │   ├── evaluate.py           # mAP@0.5 evaluation (python -m part3.evaluate)
 │   ├── inference.py          # Image/folder/video inference (python -m part3.inference)
 │   └── run_inference_batch.py
-├── tools/
-│   ├── build_voc_part3_k3_relaxed.py  # Build dataset index from VOC
-│   ├── check_class_dist.py
-│   ├── filter_single_object.py
-│   └── ...                   # Other dataset utilities
+│
 ├── models/
-│   ├── backbone.py
-│   ├── heads.py
-│   └── detector.py
+│   ├── backbone.py           # MobileNetV3-Small backbone loader
+│   ├── detector.py           # Part 2 single-object detector
+│   └── heads.py
+│
+├── data/
+│   ├── dataset.py            # COCO dataset loader (Part 2)
+│   └── transforms.py
+│
 ├── utils/
-│   ├── loss.py
+│   ├── loss.py               # CIoU, DIoU, GIoU implementations
 │   ├── metrics.py
 │   └── visualization.py
-├── data/
-│   ├── dataset.py
-│   └── transforms.py
+│
+├── tools/                    # Dataset management utilities
+│   ├── build_voc_part3_k3_relaxed.py  # Build Part 3 dataset index from VOC
+│   ├── check_class_dist.py
+│   ├── filter_single_object.py
+│   └── ...
+│
 ├── datasets/
 │   └── part3_voc_k3_relaxed/ # Dataset index JSONs (train/val/test + classes.json)
+│
 ├── checkpoints/
 │   └── part3_spatial/<tag>/
 │       ├── best.pth          # Best checkpoint by val mIoU
 │       ├── last.pth
 │       ├── summary.json      # Full training history
 │       └── tb/               # TensorBoard logs
+│
 ├── outputs/
 │   └── part3/                # Evaluation results and inference outputs
-├── videos/                   # Input/output videos
-├── config.py
-├── requirements.txt
-└── README.md
+│
+└── videos/                   # Input/output videos
 ```
 
 ---
