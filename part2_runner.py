@@ -5,9 +5,10 @@ import os
 
 def main():
     parser = argparse.ArgumentParser(description="Part 2: Single Object Detection Video Router")
-    parser.add_argument("--video", "-v", type=str, help="Path to input video for tracking (e.g., 'part2_video/Big Cats.mp4')")
+    parser.add_argument("--video", "-v", type=str, default="part2_video/v1.mp4", help="Path to input video for tracking")
     parser.add_argument("--image", "-i", type=str, help="Path to static image (optional)")
     parser.add_argument("--checkpoint", "-c", type=str, default="checkpoints/part2/best_model.pth", help="Model checkpoint path")
+    parser.add_argument("--output", "-o", type=str, default="outputs/v1_tracked.mp4", help="Path to save output video")
     args = parser.parse_args()
 
     print("==================================================")
@@ -20,14 +21,19 @@ def main():
         print("Please ensure the checkpoint file exists in the submission zip.")
         return
 
-    cmd = [sys.executable, "part2/inference.py", "--checkpoint", args.checkpoint]
+    cmd = ["python", "part2/inference.py", "--checkpoint", args.checkpoint]
     
-    if args.video:
-        cmd.extend(["--video", args.video])
-        print(f"Tracking Video: {args.video}")
-    elif args.image:
+    if args.output:
+        cmd.extend(["--output", args.output])
+    
+    if args.image:
+        # If explicitly given an image, override the video default
         cmd.extend(["--image", args.image])
         print(f"Tracking Image: {args.image}")
+    elif args.video:
+        cmd.extend(["--video", args.video])
+        print(f"Tracking Video: {args.video}")
+        print(f"Saving to: {args.output}")
     else:
         print("\n[!] Please provide a target video or image.")
         print("Example: python part2_runner.py --video \"part2_video/your_video.mp4\"")

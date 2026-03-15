@@ -7,7 +7,7 @@ def main():
     print("==================================================")
     
     # Calls the actual implementation built for Part 1
-    result = subprocess.run([sys.executable, "part1/train.py"])
+    result = subprocess.run(["python", "part1/train.py"])
     
     if result.returncode != 0:
         print("\n[!] Execution failed or was interrupted.")
